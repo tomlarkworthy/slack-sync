@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.env
+.env.local
+*.log
+
+# Local-only sidecars (workspace-specific config + secrets)
+slack-to-did.json
+slack-to-colibri-channel.json

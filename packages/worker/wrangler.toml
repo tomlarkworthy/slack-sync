@@ -1,0 +1,37 @@
+name = "slack-sync-bridge"
+main = "src/index.ts"
+compatibility_date = "2026-05-30"
+compatibility_flags = ["nodejs_compat"]
+
+# Producer: enqueue Slack events as they arrive via /slack/events.
+# Consumer: drain the queue, derive Colibri records, putRecord on the bot's PDS.
+# Defining both bindings on the same worker means a single deploy holds both
+# halves; CF will dispatch HTTP and queue invocations into the same script.
+#
+# Uncomment once the queue is created:
+#   wrangler queues create slack-events
+# [[queues.producers]]
+# binding = "EVENTS"
+# queue = "slack-events"
+#
+# [[queues.consumers]]
+# queue = "slack-events"
+# max_batch_size = 50
+# max_batch_timeout = 5
+# max_retries = 5
+# dead_letter_queue = "slack-events-dlq"
+
+# D1 cache: dumb mirror of atproto records by (repo, collection, rkey), plus
+# private oauth_tokens table (v2). See the proposal's Storage model section.
+# Uncomment once the DB is created:
+#   wrangler d1 create slack-sync-cache
+# [[d1_databases]]
+# binding = "CACHE"
+# database_name = "slack-sync-cache"
+# database_id = "<paste-id-from-create>"
+
+# Secrets (set via `wrangler secret put`):
+#   SLACK_SIGNING_SECRET
+#   SLACK_BOT_TOKEN
+#   BSKY_HANDLE
+#   BSKY_APP_PASSWORD     # or v2: BSKY_OAUTH_REFRESH_TOKEN

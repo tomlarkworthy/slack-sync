@@ -1,0 +1,58 @@
+# Slack app manifest for the FoC Slack -> Colibri bridge bot.
+#
+# Differs from the existing "FoC Conversation Archiver" in two ways:
+#   1. Bot token scopes, not user token. The bridge identity is the app's bot
+#      user, not a single human. Survives admin changes; isolated revocation.
+#   2. Event subscriptions for the real-time forward path. The archiver pulls
+#      via REST; the bridge consumes the Events API push.
+#
+# Create / update:
+#   https://api.slack.com/apps -> Create New App -> From an app manifest
+#   Choose the FoC workspace, paste this YAML.
+#
+# After install, an admin must /invite the bot into every public channel that
+# should be bridged. event_subscriptions.request_url must point at the
+# deployed Cloudflare Worker's /slack/events endpoint and is set in the Slack
+# UI after the worker is reachable.
+
+display_information:
+  name: FoC Bridge
+  description: Bridges Feeling of Computing Slack to Colibri via atproto
+  background_color: "#3D2D6E"
+
+features:
+  bot_user:
+    display_name: focbridge
+    always_online: true
+
+oauth_config:
+  scopes:
+    bot:
+      # Read message + metadata
+      - channels:history
+      - channels:read
+      - groups:history       # private channels are out of scope for v0; scope reserved
+      - groups:read
+      - users:read
+      - users:read.email     # v2: optional, for DID claim verification
+      # Rich content
+      - emoji:read
+      - files:read
+      - reactions:read
+      # No write scopes: the bridge is read-only on the Slack side. Posting
+      # back from atproto into Slack is not in scope.
+
+settings:
+  event_subscriptions:
+    # request_url: https://bridge.example.com/slack/events
+    bot_events:
+      - message.channels
+      - message.groups
+      - reaction_added
+      - reaction_removed
+      - file_shared
+      - team_join
+      - user_change
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

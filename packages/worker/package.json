@@ -1,0 +1,17 @@
+{
+  "name": "@slack-sync/worker",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "secret:list": "wrangler secret list",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260101.0",
+    "wrangler": "^3.90.0"
+  }
+}

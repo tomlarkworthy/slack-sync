@@ -1,0 +1,17 @@
+{
+  "name": "@tomlarkworthy/slack-sync",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Slack to atproto (Colibri) bridge for the Feeling of Computing community",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "backfill": "bun --filter @slack-sync/backfill start",
+    "worker:dev": "bun --filter @slack-sync/worker dev",
+    "worker:deploy": "bun --filter @slack-sync/worker deploy"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}
