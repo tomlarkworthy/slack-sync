@@ -72,15 +72,23 @@ interface SlackEventCallback {
 type SlackEnvelope = SlackUrlVerification | SlackEventCallback;
 type SlackEvent = SlackMessageEvent | SlackReactionEvent | { type: string };
 
-interface SlackMessageEvent {
-  type: "message";
-  subtype?: string;
-  channel?: string;
+interface SlackMessageInner {
   user?: string;
   text?: string;
   ts?: string;
   thread_ts?: string;
   blocks?: SlackBlock[];
+  edited?: { user: string; ts: string };
+}
+interface SlackMessageEvent extends SlackMessageInner {
+  type: "message";
+  subtype?: string;
+  channel?: string;
+  // subtype: "message_changed"
+  message?: SlackMessageInner;
+  previous_message?: SlackMessageInner;
+  // subtype: "message_deleted"
+  deleted_ts?: string;
 }
 interface SlackReactionEvent {
   type: "reaction_added" | "reaction_removed";
@@ -445,21 +453,26 @@ async function writeSlackRaw(
 }
 
 // ── message publish ────────────────────────────────────────────────────────
+//
+// Subtype dispatch (new/edit/delete) happens in queue(). This function builds
+// + writes the social.colibri.message record from the message fields. Same
+// rkey (`tidFromSlackTs(ts)`) is reused on edit — putRecord overwrites in
+// place, so the message keeps its original at-uri and createdAt.
 async function publishMessage(
-  ev: SlackMessageEvent,
+  fields: SlackMessageInner & { channel?: string },
   env: Env,
-  eventId: string,
+  _eventId: string,
+  opts: { edited?: boolean } = {},
 ): Promise<string> {
-  if (ev.subtype) return `skip subtype=${ev.subtype}`;
-  if (ev.user === BOT_SLACK_USER_ID) return "skip self";
-  if (!ev.channel || !ev.ts || !ev.text) return "skip missing-fields";
+  if (fields.user === BOT_SLACK_USER_ID) return "skip self";
+  if (!fields.channel || !fields.ts || !fields.text) return "skip missing-fields";
 
-  const colibriChannel = CHANNEL_MAP[ev.channel];
-  if (!colibriChannel) return `skip unmapped channel ${ev.channel}`;
+  const colibriChannel = CHANNEL_MAP[fields.channel];
+  if (!colibriChannel) return `skip unmapped channel ${fields.channel}`;
 
-  const author = ev.user ? await getDisplayName(ev.user, env.SLACK_BOT_TOKEN!) : "unknown";
+  const author = fields.user ? await getDisplayName(fields.user, env.SLACK_BOT_TOKEN!) : "unknown";
   const resolveUser = (id: string) => userNameCache.get(id) ?? id;
-  const authorDid = ev.user ? didForSlackUser(ev.user) : undefined;
+  const authorDid = fields.user ? didForSlackUser(fields.user) : undefined;
 
   const b = new FacetBuilder();
   if (authorDid) {
@@ -471,10 +484,10 @@ async function publishMessage(
     b.emit(`@${author}`);
   }
   b.emit(": ");
-  if (Array.isArray(ev.blocks) && ev.blocks.some((x) => x?.type === "rich_text")) {
-    walkBlocks(ev.blocks, b, resolveUser);
+  if (Array.isArray(fields.blocks) && fields.blocks.some((x) => x?.type === "rich_text")) {
+    walkBlocks(fields.blocks, b, resolveUser);
   } else {
-    b.emit(ev.text);
+    b.emit(fields.text);
   }
   let { text, facets } = b.finish();
   if (text.length > 2048) {
@@ -483,23 +496,39 @@ async function publishMessage(
     facets = facets.filter((f) => f.index.byteEnd <= maxBytes);
   }
 
-  const rkey = tidFromSlackTs(ev.ts);
+  const rkey = tidFromSlackTs(fields.ts);
   const parentRkey =
-    ev.thread_ts && ev.thread_ts !== ev.ts ? tidFromSlackTs(ev.thread_ts) : undefined;
+    fields.thread_ts && fields.thread_ts !== fields.ts ? tidFromSlackTs(fields.thread_ts) : undefined;
 
   const record: Record<string, unknown> = {
     $type: "social.colibri.message",
     text,
     channel: colibriChannel,
-    createdAt: new Date(parseFloat(ev.ts) * 1000).toISOString(),
+    createdAt: new Date(parseFloat(fields.ts) * 1000).toISOString(),
     facets,
     attachments: [],
   };
   if (parentRkey) record["parent"] = parentRkey;
+  if (opts.edited) record["edited"] = true;
 
   const sess = await getBskySession(env);
   await putRecord(sess, "social.colibri.message", rkey, record);
-  return `published message rkey=${rkey} channel=${ev.channel}->${colibriChannel}`;
+  return `${opts.edited ? "edited" : "published"} message rkey=${rkey} channel=${fields.channel}->${colibriChannel}`;
+}
+
+async function unpublishMessage(
+  ev: SlackMessageEvent,
+  env: Env,
+  _eventId: string,
+): Promise<string> {
+  const channel = ev.channel;
+  const deletedTs = ev.deleted_ts ?? ev.previous_message?.ts;
+  if (!channel || !deletedTs) return "skip delete missing-fields";
+  if (!CHANNEL_MAP[channel]) return `skip unmapped channel ${channel}`;
+  const rkey = tidFromSlackTs(deletedTs);
+  const sess = await getBskySession(env);
+  await deleteRecord(sess, "social.colibri.message", rkey);
+  return `deleted message rkey=${rkey} channel=${channel}`;
 }
 
 // ── reaction publish / delete ──────────────────────────────────────────────
@@ -603,10 +632,24 @@ export default {
         const rawResult = await writeSlackRaw(envelope, env);
         console.log("event", eventId, rawResult);
 
-        // 2. dispatch by event type
+        // 2. dispatch by event type (+ subtype for messages)
         let derive = "skip non-publishable type";
         if (ev?.type === "message") {
-          derive = await publishMessage(ev as SlackMessageEvent, env, eventId);
+          const m = ev as SlackMessageEvent;
+          if (!m.subtype) {
+            derive = await publishMessage(m, env, eventId);
+          } else if (m.subtype === "message_changed" && m.message) {
+            derive = await publishMessage(
+              { ...m.message, channel: m.channel },
+              env,
+              eventId,
+              { edited: true },
+            );
+          } else if (m.subtype === "message_deleted") {
+            derive = await unpublishMessage(m, env, eventId);
+          } else {
+            derive = `skip subtype=${m.subtype}`;
+          }
         } else if (ev?.type === "reaction_added") {
           derive = await publishReaction(ev as SlackReactionEvent, env, eventId);
         } else if (ev?.type === "reaction_removed") {
