@@ -24,6 +24,7 @@ import {
   aliases as EMOJI_ALIASES,
   entries as EMOJI_ENTRIES,
 } from "./emoji-data";
+import { didForSlackUser } from "./slack-to-did";
 
 const PDS = "https://bsky.social";
 const BOT_SLACK_USER_ID = "U0B7685PHGD"; // focbridge; skip its own join messages
@@ -289,7 +290,18 @@ function walkSectionItem(
         });
       break;
     case "user":
-      if (item.user_id) b.emit(`@${resolveUser(item.user_id)}`);
+      if (item.user_id) {
+        const did = didForSlackUser(item.user_id);
+        const text = `@${resolveUser(item.user_id)}`;
+        if (did) {
+          b.emit(text, {
+            $type: "social.colibri.richtext.facet#mention",
+            did,
+          });
+        } else {
+          b.emit(text);
+        }
+      }
       break;
     case "channel":
       if (item.channel_id) b.emit(`#${item.channel_id}`);
@@ -447,9 +459,17 @@ async function publishMessage(
 
   const author = ev.user ? await getDisplayName(ev.user, env.SLACK_BOT_TOKEN!) : "unknown";
   const resolveUser = (id: string) => userNameCache.get(id) ?? id;
+  const authorDid = ev.user ? didForSlackUser(ev.user) : undefined;
 
   const b = new FacetBuilder();
-  b.emit(`@${author}`);
+  if (authorDid) {
+    b.emit(`@${author}`, {
+      $type: "social.colibri.richtext.facet#mention",
+      did: authorDid,
+    });
+  } else {
+    b.emit(`@${author}`);
+  }
   b.emit(": ");
   if (Array.isArray(ev.blocks) && ev.blocks.some((x) => x?.type === "rich_text")) {
     walkBlocks(ev.blocks, b, resolveUser);
