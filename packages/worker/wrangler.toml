@@ -3,23 +3,23 @@ main = "src/index.ts"
 compatibility_date = "2026-05-30"
 compatibility_flags = ["nodejs_compat"]
 
-# Producer: enqueue Slack events as they arrive via /slack/events.
-# Consumer: drain the queue, derive Colibri records, putRecord on the bot's PDS.
-# Defining both bindings on the same worker means a single deploy holds both
-# halves; CF will dispatch HTTP and queue invocations into the same script.
+# Producer: fetch() enqueues each event_callback envelope as it arrives.
+# Consumer: queue() drains, writes slackRaw, derives + publishes to atproto.
+# Both bindings on the same worker = one deploy holds both halves.
 #
-# Uncomment once the queue is created:
+# Provision the queues first:
 #   wrangler queues create slack-events
-# [[queues.producers]]
-# binding = "EVENTS"
-# queue = "slack-events"
-#
-# [[queues.consumers]]
-# queue = "slack-events"
-# max_batch_size = 50
-# max_batch_timeout = 5
-# max_retries = 5
-# dead_letter_queue = "slack-events-dlq"
+#   wrangler queues create slack-events-dlq
+[[queues.producers]]
+binding = "EVENTS"
+queue = "slack-events"
+
+[[queues.consumers]]
+queue = "slack-events"
+max_batch_size = 25
+max_batch_timeout = 2
+max_retries = 5
+dead_letter_queue = "slack-events-dlq"
 
 # D1 cache: dumb mirror of atproto records by (repo, collection, rkey), plus
 # private oauth_tokens table (v2). See the proposal's Storage model section.

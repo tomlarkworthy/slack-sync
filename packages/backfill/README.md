@@ -38,7 +38,7 @@ When some channels need lazy-creation (not in `slack-to-colibri-channel.json`), 
 
 ## Design
 
-See [the proposal](https://github.com/feelingofcomputing/wiki/pull/20) for: write order (slackRaw -> message -> slackOrigin), authorship constraints, channel-ownership constraint, lossless archival via `com.feelingof.bridge.slackRaw`, and the full upstream-asks list.
+See [the proposal](https://github.com/feelingofcomputing/wiki/pull/20) for: write order (slackRaw -> message -> slackOrigin), authorship constraints, channel-ownership constraint, lossless archival via `com.feelingofcomputing.bridge.slackRaw`, and the full upstream-asks list.
 
 ## Implementation note
 

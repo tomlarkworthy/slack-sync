@@ -1,22 +1,33 @@
 // Cloudflare Worker entry for the FoC Slack -> Colibri bridge.
 //
-// Surface:
-//   - GET  /health           liveness check
-//   - POST /slack/events     Slack Events API receiver, HMAC-verified, publishes
-//                            inline to atproto on `message` events for
-//                            channels that appear in CHANNEL_MAP below.
+// Two halves in one script:
 //
-// Inline (no queue) for v0: the path is HMAC-verify -> map channel ->
-// resolve display name -> derive text+facets from rich_text blocks ->
-// bsky login (cached per-isolate) -> putRecord. Completes in ~600ms on
-// cold cache, ~200ms warm, well inside Slack's 3s ack budget. Queue +
-// slackRaw archival land when the simple case is proven.
+//   fetch() — Slack Events API receiver. HMAC-verifies, short-circuits
+//     url_verification challenges, and otherwise enqueues the envelope to
+//     a CF Queue. Returns 200 to Slack within milliseconds, well inside
+//     the 3-second ack budget — no PDS-blocking work happens here.
+//
+//   queue() — drains the queue. For each event:
+//     1. Write a `com.feelingofcomputing.bridge.slackRaw` record (lossless
+//        capture of the raw envelope, keyed by event_id, idempotent on
+//        Slack redelivery).
+//     2. Dispatch by event.type:
+//          message          -> publish social.colibri.message
+//          reaction_added   -> publish social.colibri.reaction
+//          reaction_removed -> delete  social.colibri.reaction
+//     Throws on failure -> CF retries up to max_retries -> dead-letters.
 //
 // Channel map is hardcoded — channel additions require a redeploy. Will
 // migrate to KV once the channel set is no longer hand-maintained.
 
+import {
+  aliases as EMOJI_ALIASES,
+  entries as EMOJI_ENTRIES,
+} from "./emoji-data";
+
 const PDS = "https://bsky.social";
 const BOT_SLACK_USER_ID = "U0B7685PHGD"; // focbridge; skip its own join messages
+const SLACK_RAW_COLLECTION = "com.feelingofcomputing.bridge.slackRaw";
 
 // Slack channel id -> Colibri channel rkey on the community owner's repo.
 // Mirror of tools/slack-to-colibri-channel.json on the backfill side.
@@ -41,6 +52,7 @@ export interface Env {
   SLACK_BOT_TOKEN?: string;
   BSKY_HANDLE?: string;
   BSKY_APP_PASSWORD?: string;
+  EVENTS: Queue<SlackEventCallback>;
 }
 
 // ── shared types ────────────────────────────────────────────────────────────
@@ -54,9 +66,10 @@ interface SlackEventCallback {
   team_id?: string;
   event_id?: string;
   event_time?: number;
-  event?: SlackMessageEvent | { type?: string };
+  event?: SlackEvent;
 }
 type SlackEnvelope = SlackUrlVerification | SlackEventCallback;
+type SlackEvent = SlackMessageEvent | SlackReactionEvent | { type: string };
 
 interface SlackMessageEvent {
   type: "message";
@@ -67,6 +80,13 @@ interface SlackMessageEvent {
   ts?: string;
   thread_ts?: string;
   blocks?: SlackBlock[];
+}
+interface SlackReactionEvent {
+  type: "reaction_added" | "reaction_removed";
+  user?: string;
+  reaction: string;
+  item?: { type: string; channel: string; ts: string };
+  event_ts?: string;
 }
 type SlackBlock = { type: string; elements?: SlackBlockElement[] };
 type SlackBlockElement = {
@@ -131,13 +151,31 @@ function tidFromMicros(microseconds: bigint, clockId = 0): string {
   }
   return chars.reverse().join("");
 }
-function tidFromSlackTs(ts: string): string {
+function tidFromSlackTs(ts: string, clockId = 0): string {
   const [sec, usecRaw = ""] = ts.split(".");
   const usec = (usecRaw + "000000").slice(0, 6);
-  return tidFromMicros(BigInt(sec!) * 1_000_000n + BigInt(usec));
+  return tidFromMicros(BigInt(sec!) * 1_000_000n + BigInt(usec), clockId);
+}
+function hash10(s: string): number {
+  let h = 0;
+  for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0;
+  return Math.abs(h) & 0x3ff;
 }
 
-// ── facet builder + blocks walker (subset of the backfill's; keep in sync) ──
+// ── emoji map ───────────────────────────────────────────────────────────────
+const EMOJI_MAP = new Map<string, string>();
+for (const [name, unicode] of EMOJI_ENTRIES as Array<[string, string]>) {
+  EMOJI_MAP.set(name, unicode);
+}
+for (const [name, unicode] of Object.entries(EMOJI_ALIASES)) {
+  EMOJI_MAP.set(name, unicode as string);
+}
+function emojiForName(name: string): string {
+  const base = name.split("::")[0]!;
+  return EMOJI_MAP.get(base) ?? `:${name}:`;
+}
+
+// ── facet builder + blocks walker ──────────────────────────────────────────
 const utf8enc = new TextEncoder();
 const utf8Len = (s: string) => utf8enc.encode(s).length;
 
@@ -265,7 +303,7 @@ function walkSectionItem(
           );
         } catch {}
       }
-      b.emit(unicode || `:${item.name ?? ""}:`);
+      b.emit(unicode || emojiForName(item.name ?? ""));
       break;
     }
     case "broadcast":
@@ -299,7 +337,7 @@ async function getDisplayName(userId: string, botToken: string): Promise<string>
   }
 }
 
-// ── bsky session (cached per isolate; refresh well before 2hr token expiry) ──
+// ── bsky session (cached per isolate) ──────────────────────────────────────
 let cachedSession: { did: string; accessJwt: string; expiresAt: number } | null = null;
 async function getBskySession(env: Env) {
   if (cachedSession && cachedSession.expiresAt > Date.now() + 60_000) {
@@ -316,8 +354,9 @@ async function getBskySession(env: Env) {
   return cachedSession;
 }
 
-async function putColibriMessage(
+async function putRecord(
   sess: { did: string; accessJwt: string },
+  collection: string,
   rkey: string,
   record: unknown,
 ) {
@@ -327,18 +366,73 @@ async function putColibriMessage(
       "Content-Type": "application/json",
       Authorization: `Bearer ${sess.accessJwt}`,
     },
-    body: JSON.stringify({
-      repo: sess.did,
-      collection: "social.colibri.message",
-      rkey,
-      record,
-    }),
+    body: JSON.stringify({ repo: sess.did, collection, rkey, record }),
   });
-  if (!r.ok) throw new Error(`putRecord: ${r.status} ${await r.text()}`);
+  if (!r.ok) throw new Error(`putRecord ${collection}/${rkey}: ${r.status} ${await r.text()}`);
   return await r.json();
 }
 
-// ── main publish path ──────────────────────────────────────────────────────
+async function deleteRecord(
+  sess: { did: string; accessJwt: string },
+  collection: string,
+  rkey: string,
+) {
+  const r = await fetch(`${PDS}/xrpc/com.atproto.repo.deleteRecord`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sess.accessJwt}`,
+    },
+    body: JSON.stringify({ repo: sess.did, collection, rkey }),
+  });
+  // 404 = already gone; treat as success (idempotent)
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`deleteRecord ${collection}/${rkey}: ${r.status} ${await r.text()}`);
+  return await r.json();
+}
+
+// ── slackRaw lossless capture ──────────────────────────────────────────────
+// rkey = sanitised event_id (Slack guarantees unique per event). Storing the
+// full envelope under the bot's repo means any future change to derivation
+// or any Colibri lexicon churn can be re-played without re-pulling Slack.
+function rkeyForSlackRaw(eventId: string): string {
+  // Slack event ids are alphanumeric (e.g. Ev0B840SK48Y). Lowercase for
+  // safety; atproto rkeys allow [a-zA-Z0-9._:~-]{1,512}.
+  return eventId.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+async function writeSlackRaw(
+  envelope: SlackEventCallback,
+  env: Env,
+): Promise<string> {
+  const eventId = envelope.event_id;
+  if (!eventId) return "skip slackRaw: no event_id";
+  const ev = envelope.event;
+  const eventType = ev?.type ?? "unknown";
+  // For messages, channel + ts live on event; for reactions, on event.item.
+  const channelId =
+    (ev as SlackMessageEvent | undefined)?.channel ??
+    (ev as SlackReactionEvent | undefined)?.item?.channel ??
+    "";
+  const slackTs =
+    (ev as SlackMessageEvent | undefined)?.ts ??
+    (ev as SlackReactionEvent | undefined)?.item?.ts ??
+    (ev as SlackReactionEvent | undefined)?.event_ts ??
+    "";
+  const sess = await getBskySession(env);
+  const rkey = rkeyForSlackRaw(eventId);
+  await putRecord(sess, SLACK_RAW_COLLECTION, rkey, {
+    $type: SLACK_RAW_COLLECTION,
+    slackChannelId: channelId,
+    slackTs,
+    eventType,
+    payload: envelope,
+    capturedAt: new Date().toISOString(),
+  });
+  return `slackRaw rkey=${rkey} type=${eventType}`;
+}
+
+// ── message publish ────────────────────────────────────────────────────────
 async function publishMessage(
   ev: SlackMessageEvent,
   env: Env,
@@ -384,8 +478,47 @@ async function publishMessage(
   if (parentRkey) record["parent"] = parentRkey;
 
   const sess = await getBskySession(env);
-  await putColibriMessage(sess, rkey, record);
-  return `published rkey=${rkey} channel=${ev.channel}->${colibriChannel}`;
+  await putRecord(sess, "social.colibri.message", rkey, record);
+  return `published message rkey=${rkey} channel=${ev.channel}->${colibriChannel}`;
+}
+
+// ── reaction publish / delete ──────────────────────────────────────────────
+function tidForReaction(messageTs: string, emojiName: string): string {
+  // Same scheme as backfill: time = message ts, clock id = 10b hash of name.
+  // Collisions on a single message are bounded by 2^10 distinct emojis (rare).
+  return tidFromSlackTs(messageTs, hash10(`react:${emojiName}`));
+}
+
+async function publishReaction(
+  ev: SlackReactionEvent,
+  env: Env,
+  _eventId: string,
+): Promise<string> {
+  if (!ev.item || ev.item.type !== "message") return `skip reaction on item.type=${ev.item?.type}`;
+  const colibriChannel = CHANNEL_MAP[ev.item.channel];
+  if (!colibriChannel) return `skip unmapped channel ${ev.item.channel}`;
+  const targetRkey = tidFromSlackTs(ev.item.ts);
+  const rkey = tidForReaction(ev.item.ts, ev.reaction);
+  const sess = await getBskySession(env);
+  await putRecord(sess, "social.colibri.reaction", rkey, {
+    $type: "social.colibri.reaction",
+    emoji: emojiForName(ev.reaction),
+    targetMessage: targetRkey,
+  });
+  return `published reaction rkey=${rkey} :${ev.reaction}: -> ${targetRkey}`;
+}
+
+async function unpublishReaction(
+  ev: SlackReactionEvent,
+  env: Env,
+  _eventId: string,
+): Promise<string> {
+  if (!ev.item || ev.item.type !== "message") return `skip reaction on item.type=${ev.item?.type}`;
+  if (!CHANNEL_MAP[ev.item.channel]) return `skip unmapped channel ${ev.item.channel}`;
+  const rkey = tidForReaction(ev.item.ts, ev.reaction);
+  const sess = await getBskySession(env);
+  await deleteRecord(sess, "social.colibri.reaction", rkey);
+  return `deleted reaction rkey=${rkey} :${ev.reaction}:`;
 }
 
 // ── entry ──────────────────────────────────────────────────────────────────
@@ -427,20 +560,7 @@ export default {
       }
 
       if (envelope.type === "event_callback") {
-        const eventId = envelope.event_id ?? "?";
-        const ev = envelope.event as SlackMessageEvent | undefined;
-        if (!ev || ev.type !== "message") {
-          console.log("event", eventId, ev?.type ?? "?", "skip non-message");
-          return new Response("ok");
-        }
-        try {
-          const result = await publishMessage(ev, env, eventId);
-          console.log("event", eventId, result);
-        } catch (err) {
-          console.error("event", eventId, "FAILED", err instanceof Error ? err.message : err);
-          // Return 5xx so Slack retries — for now we want signal on failures.
-          return new Response("publish failed", { status: 500 });
-        }
+        await env.EVENTS.send(envelope);
         return new Response("ok");
       }
 
@@ -448,5 +568,41 @@ export default {
     }
 
     return new Response("not found", { status: 404 });
+  },
+
+  async queue(
+    batch: MessageBatch<SlackEventCallback>,
+    env: Env,
+  ): Promise<void> {
+    for (const msg of batch.messages) {
+      const envelope = msg.body;
+      const eventId = envelope.event_id ?? "?";
+      const ev = envelope.event;
+      try {
+        // 1. lossless archive first
+        const rawResult = await writeSlackRaw(envelope, env);
+        console.log("event", eventId, rawResult);
+
+        // 2. dispatch by event type
+        let derive = "skip non-publishable type";
+        if (ev?.type === "message") {
+          derive = await publishMessage(ev as SlackMessageEvent, env, eventId);
+        } else if (ev?.type === "reaction_added") {
+          derive = await publishReaction(ev as SlackReactionEvent, env, eventId);
+        } else if (ev?.type === "reaction_removed") {
+          derive = await unpublishReaction(ev as SlackReactionEvent, env, eventId);
+        }
+        console.log("event", eventId, derive);
+        msg.ack();
+      } catch (err) {
+        console.error(
+          "event",
+          eventId,
+          "FAILED",
+          err instanceof Error ? err.message : err,
+        );
+        msg.retry();
+      }
+    }
   },
 };
