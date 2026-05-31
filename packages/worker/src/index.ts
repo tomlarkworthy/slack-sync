@@ -20,8 +20,20 @@ const BOT_SLACK_USER_ID = "U0B7685PHGD"; // focbridge; skip its own join message
 
 // Slack channel id -> Colibri channel rkey on the community owner's repo.
 // Mirror of tools/slack-to-colibri-channel.json on the backfill side.
+// All under new "Feeling of Computing" community (3mn5nudqvhs2x) on
+// did:plc:j7nm3lrd5h7fm3sfhcv3lhfv.
 const CHANNEL_MAP: Record<string, string> = {
-  C0B7BGKT8MP: "3mn5tckh3ij24", // test-01 (under new "Feeling of Computing" community)
+  C01932BJGE8: "3mn5tlwafrh2k", // present-company
+  CCL5VVBAN:   "3mn5tmbyexz27", // share-your-work
+  C5T9GPWFL:   "3mn5tmllqd72d", // thinking-together
+  C050QK4917D: "3mn5tlntcfa2f", // of-ai
+  C03RR0W5DGC: "3mn5tk5v4yr2s", // devlog-together
+  C5U3SEW6A:   "3mn5tle5l7c2z", // linking-together
+  CEXED56UR:   "3mn5tjjdnai2t", // administrivia
+  CGMJ7323Z:   "3mn5tjsyuvt2t", // announcements
+  CC2JRGVLK:   "3mn5tkvfo2j2s", // introduce-yourself
+  C0120A3L30R: "3mn5tn53kwy2w", // two-minute-week
+  C0B7BGKT8MP: "3mn5tckh3ij24", // test-01
 };
 
 export interface Env {
