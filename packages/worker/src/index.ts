@@ -72,6 +72,15 @@ interface SlackEventCallback {
 type SlackEnvelope = SlackUrlVerification | SlackEventCallback;
 type SlackEvent = SlackMessageEvent | SlackReactionEvent | { type: string };
 
+interface SlackFile {
+  id: string;
+  name?: string;
+  title?: string;
+  mimetype?: string;
+  size?: number;
+  url_private?: string;
+  url_private_download?: string;
+}
 interface SlackMessageInner {
   user?: string;
   text?: string;
@@ -79,6 +88,7 @@ interface SlackMessageInner {
   thread_ts?: string;
   blocks?: SlackBlock[];
   edited?: { user: string; ts: string };
+  files?: SlackFile[];
 }
 interface SlackMessageEvent extends SlackMessageInner {
   type: "message";
@@ -411,6 +421,68 @@ async function deleteRecord(
   return await r.json();
 }
 
+// ── file attachment bridging ───────────────────────────────────────────────
+// Per file: GET Slack's url_private (auth'd with bot token), POST bytes to
+// PDS uploadBlob, return the blob ref for inclusion in message.attachments.
+// PDS errors throw (caller retries the whole message); Slack 4xx + oversize
+// downgrade to a placeholder in the message text — the slackRaw archive still
+// holds the original URL so a manual re-run can recover.
+const MAX_BLOB_BYTES = 5 * 1024 * 1024;
+
+type BridgedFile =
+  | { ok: true; attachment: { blob: unknown; name?: string } }
+  | { ok: false; reason: string; name: string };
+
+async function bridgeSlackFile(
+  file: SlackFile,
+  sess: { did: string; accessJwt: string },
+  botToken: string,
+): Promise<BridgedFile> {
+  const displayName = file.name ?? file.title ?? file.id;
+  if (!file.url_private) {
+    return { ok: false, reason: "no url_private", name: displayName };
+  }
+  if (typeof file.size === "number" && file.size > MAX_BLOB_BYTES) {
+    return { ok: false, reason: `too large (${file.size}b)`, name: displayName };
+  }
+  let bytes: Uint8Array;
+  try {
+    const r = await fetch(file.url_private, {
+      headers: { Authorization: `Bearer ${botToken}` },
+    });
+    if (!r.ok) {
+      return { ok: false, reason: `slack fetch ${r.status}`, name: displayName };
+    }
+    const buf = await r.arrayBuffer();
+    if (buf.byteLength > MAX_BLOB_BYTES) {
+      return { ok: false, reason: `fetched too large (${buf.byteLength}b)`, name: displayName };
+    }
+    bytes = new Uint8Array(buf);
+  } catch (e) {
+    return {
+      ok: false,
+      reason: `slack fetch ${e instanceof Error ? e.message : "error"}`,
+      name: displayName,
+    };
+  }
+  const mime = file.mimetype || "application/octet-stream";
+  const upload = await fetch(`${PDS}/xrpc/com.atproto.repo.uploadBlob`, {
+    method: "POST",
+    headers: {
+      "Content-Type": mime,
+      Authorization: `Bearer ${sess.accessJwt}`,
+    },
+    body: bytes,
+  });
+  if (!upload.ok) {
+    throw new Error(`uploadBlob ${file.id}: ${upload.status} ${await upload.text()}`);
+  }
+  const j = (await upload.json()) as { blob: unknown };
+  const attachment: { blob: unknown; name?: string } = { blob: j.blob };
+  if (file.name) attachment.name = file.name.slice(0, 256);
+  return { ok: true, attachment };
+}
+
 // ── slackRaw lossless capture ──────────────────────────────────────────────
 // rkey = sanitised event_id (Slack guarantees unique per event). Storing the
 // full envelope under the bot's repo means any future change to derivation
@@ -465,7 +537,9 @@ async function publishMessage(
   opts: { edited?: boolean } = {},
 ): Promise<string> {
   if (fields.user === BOT_SLACK_USER_ID) return "skip self";
-  if (!fields.channel || !fields.ts || !fields.text) return "skip missing-fields";
+  if (!fields.channel || !fields.ts) return "skip missing-fields";
+  const hasFiles = Array.isArray(fields.files) && fields.files.length > 0;
+  if (!fields.text && !hasFiles) return "skip empty";
 
   const colibriChannel = CHANNEL_MAP[fields.channel];
   if (!colibriChannel) return `skip unmapped channel ${fields.channel}`;
@@ -486,9 +560,25 @@ async function publishMessage(
   b.emit(": ");
   if (Array.isArray(fields.blocks) && fields.blocks.some((x) => x?.type === "rich_text")) {
     walkBlocks(fields.blocks, b, resolveUser);
-  } else {
+  } else if (fields.text) {
     b.emit(fields.text);
   }
+
+  // File attachments: upload to PDS as blobs, downgrade failures to text notes.
+  const sess = await getBskySession(env);
+  const attachments: Array<{ blob: unknown; name?: string }> = [];
+  const fileSkipNotes: string[] = [];
+  if (Array.isArray(fields.files) && fields.files.length > 0) {
+    for (const file of fields.files) {
+      const res = await bridgeSlackFile(file, sess, env.SLACK_BOT_TOKEN!);
+      if (res.ok) attachments.push(res.attachment);
+      else fileSkipNotes.push(`[file '${res.name}' ${res.reason}]`);
+    }
+  }
+  if (fileSkipNotes.length > 0) {
+    b.emit("\n" + fileSkipNotes.join("\n"));
+  }
+
   let { text, facets } = b.finish();
   if (text.length > 2048) {
     text = text.slice(0, 2048);
@@ -506,14 +596,13 @@ async function publishMessage(
     channel: colibriChannel,
     createdAt: new Date(parseFloat(fields.ts) * 1000).toISOString(),
     facets,
-    attachments: [],
+    attachments,
   };
   if (parentRkey) record["parent"] = parentRkey;
   if (opts.edited) record["edited"] = true;
 
-  const sess = await getBskySession(env);
   await putRecord(sess, "social.colibri.message", rkey, record);
-  return `${opts.edited ? "edited" : "published"} message rkey=${rkey} channel=${fields.channel}->${colibriChannel}`;
+  return `${opts.edited ? "edited" : "published"} message rkey=${rkey} channel=${fields.channel}->${colibriChannel} files=${attachments.length}${fileSkipNotes.length ? `+${fileSkipNotes.length}skipped` : ""}`;
 }
 
 async function unpublishMessage(
@@ -636,7 +725,7 @@ export default {
         let derive = "skip non-publishable type";
         if (ev?.type === "message") {
           const m = ev as SlackMessageEvent;
-          if (!m.subtype) {
+          if (!m.subtype || m.subtype === "file_share") {
             derive = await publishMessage(m, env, eventId);
           } else if (m.subtype === "message_changed" && m.message) {
             derive = await publishMessage(
