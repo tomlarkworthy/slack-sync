@@ -239,6 +239,22 @@ function walkBlocks(
   }
 }
 
+// Collect Slack user_ids referenced as inline `<@U…>` mentions. The walker
+// is sync but getDisplayName is async, so we pre-resolve into userNameCache
+// before walking — otherwise inline mentions render as raw `@U…` ids.
+function collectMentionedUserIds(blocks: SlackBlock[]): string[] {
+  const ids = new Set<string>();
+  const walk = (els?: SlackBlockElement[]) => {
+    if (!els) return;
+    for (const el of els) {
+      if (el.type === "user" && el.user_id) ids.add(el.user_id);
+      walk(el.elements);
+    }
+  };
+  for (const block of blocks) walk(block.elements);
+  return [...ids];
+}
+
 function walkRichTextElements(
   elements: SlackBlockElement[],
   b: FacetBuilder,
@@ -559,6 +575,10 @@ async function publishMessage(
   }
   b.emit(": ");
   if (Array.isArray(fields.blocks) && fields.blocks.some((x) => x?.type === "rich_text")) {
+    const mentioned = collectMentionedUserIds(fields.blocks);
+    await Promise.all(
+      mentioned.map((id) => getDisplayName(id, env.SLACK_BOT_TOKEN!)),
+    );
     walkBlocks(fields.blocks, b, resolveUser);
   } else if (fields.text) {
     b.emit(fields.text);
