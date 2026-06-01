@@ -19,6 +19,7 @@ export const SLACK_USER_DID_MAP: Record<string, string> = {
   U018S42NMMM: "did:plc:nwvtsa2zqyhpn5dvecdgec6p", // Nilesh Trivedi
   UCUSW7WVD:   "did:plc:tjjg4apdy6trfahz65f54duy", // Kartik Agaram
   U05UK5T7LPP: "did:plc:zlpfp5xn43tpzre5icmeuhcu", // Jasmine Otto
+  UK3LH8CF5:   "did:plc:ahbeu3r5t2otkfx4fmlatzaw", // Jimmy Miller
 };
 
 export function didForSlackUser(userId: string): string | undefined {
