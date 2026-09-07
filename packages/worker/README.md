@@ -41,7 +41,7 @@ After deploy, set the Slack app's **Event Subscriptions -> Request URL** to `htt
 | Queue consumer | Capture as `slackRaw`, derive `social.colibri.message`, link via `slackOrigin`, project reactions, upload file blobs. |
 | `GET /health` | Liveness check for monitoring. |
 | `POST /atproto/inject` | Reverse half test producer: bearer `INJECT_TOKEN`, body = one Jetstream commit event or an array, enqueued to `atproto-events`. `bun scripts/inject.ts at://…` builds one from a live record. |
-| Queue consumer `atproto-events` | Reverse half (`src/reverse.ts`): mirror `social.colibri.message` / `.reaction` from any author except the bot into Slack as the bot user, `@name:` byline, `slackMirror` record per mirrored record for idempotency and lookups. |
+| Queue consumer `atproto-events` | Reverse half (`src/reverse.ts`): mirror `social.colibri.message` / `.reaction` from any author except the bot into Slack as the bot user, author as the post name and avatar (`@name:` byline only without `chat:write.customize`), `slackMirror` record per mirrored record for idempotency and lookups. |
 | Durable Object `JetstreamTail` (`src/tail.ts`) | Producer for `atproto-events`. Alarm every 10 s: open Jetstream at the stored cursor, forward bot-free commits whose channel maps (messages) or that need a lookup (reactions, deletes), close once an event is past the drain start. Cron `*/1` re-arms a lost alarm. |
 | `GET /tail/status`, `POST /tail/start`, `POST /tail/stop` | Tail control, bearer `INJECT_TOKEN`. Status carries cursor, last drain size/duration, caught-up flag, last error, next alarm. `bun scripts/tail-smoke.ts [cursor_us] [budget_ms]` runs one drain locally. |
 

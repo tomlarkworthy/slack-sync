@@ -2,7 +2,7 @@
 //
 // Consumes Jetstream-shaped commit events for social.colibri.message and
 // social.colibri.reaction from the `atproto-events` queue and mirrors them
-// into Slack as the bot user, with an `@Name: ` byline.
+// into Slack as the bot user, posted under the author's name and avatar.
 //
 // Loop safety: every record authored by the bot repo (BOT_DID) is skipped
 // here; every Slack event authored by the bot user is skipped in index.ts.
@@ -188,9 +188,12 @@ async function slackCoordsFor(
 }
 
 // ── rendering ──────────────────────────────────────────────────────────────
-async function renderMessage(did: string, rec: ColibriMessage, author: Author): Promise<string> {
+// Body only: the author is the post's username/icon (chat:write.customize).
+// The `@name: ` byline is prepended only when that scope is missing.
+const byline = (author: Author, text: string) => `@${escapeMrkdwn(author.name)}: ${text}`;
+
+async function renderMessage(did: string, rec: ColibriMessage): Promise<string> {
   const parts: string[] = [];
-  parts.push(`@${escapeMrkdwn(author.name)}: `);
   parts.push(renderFacets(rec.text ?? "", rec.facets, { slackUserForDid }));
   if (Array.isArray(rec.attachments) && rec.attachments.length > 0) {
     const pds = (await resolveDid(did)).pds;
@@ -234,7 +237,7 @@ async function mirrorMessage(ev: JetstreamCommit, env: ReverseEnv): Promise<stri
   }
 
   const author = await resolveAuthor(ev.did);
-  const text = await renderMessage(ev.did, rec, author);
+  const text = await renderMessage(ev.did, rec);
   const sess = await getBskySession(env);
   const metadata = { event_type: MIRROR_EVENT_TYPE, event_payload: { uri: source, cid: ev.commit.cid ?? "" } };
 
@@ -271,7 +274,7 @@ async function mirrorMessage(ev: JetstreamCommit, env: ReverseEnv): Promise<stri
     { ...post, username: `${author.name} (Colibri)`, ...(author.avatar ? { icon_url: author.avatar } : {}) },
     ["missing_scope"],
   );
-  if (!res.ok) res = await slack<{ ts: string }>(env, "chat.postMessage", post);
+  if (!res.ok) res = await slack<{ ts: string }>(env, "chat.postMessage", { ...post, text: byline(author, text) });
 
   await putRecord(sess, MIRROR_COLLECTION, rkey, {
     $type: MIRROR_COLLECTION,
