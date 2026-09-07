@@ -42,8 +42,14 @@ export interface BridgeEvent {
   /** Which half logged it: `slack` = the bridge authored the record from a
    *  Slack event; `colibri` = a member authored it and the bridge saw it. */
   via: "slack" | "colibri";
-  /** When the bridge observed the change, not when the record was created. */
+  /** When the bridge observed the change, not when the record was created.
+   *  On a backfilled entry there was no observation, so this is the record's
+   *  own time and `backfill` says so. */
   at: string;
+  /** Set on an entry synthesised from a record that already existed, rather
+   *  than logged as it happened. Such an entry's rkey is derived from the
+   *  subject's own TID so the log stays chronological across the switch-over. */
+  backfill?: true;
 }
 
 export interface EventInput {
@@ -52,6 +58,7 @@ export interface EventInput {
   cid?: string;
   channel?: string;
   via: BridgeEvent["via"];
+  backfill?: true;
 }
 
 // TIDs are microsecond-resolution; Date.now() is milliseconds, so two events in
@@ -76,6 +83,7 @@ export function buildEvent(ev: EventInput, at: string = new Date().toISOString()
     ...(ev.channel ? { channel: ev.channel } : {}),
     via: ev.via,
     at,
+    ...(ev.backfill ? { backfill: true as const } : {}),
   };
 }
 

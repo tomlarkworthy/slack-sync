@@ -62,6 +62,17 @@ describe("the record is a pointer, never content", () => {
     expect("cid" in ev).toBe(false);
     expect("channel" in ev).toBe(false);
   });
+  test("a backfilled entry says so, and carries the record's own time", () => {
+    const ev = buildEvent(
+      { op: "create", subject: SUBJECT, via: "colibri", backfill: true },
+      "2026-08-14T09:12:03.000Z",
+    );
+    expect(ev.backfill).toBe(true);
+    expect(ev.at).toBe("2026-08-14T09:12:03.000Z");
+  });
+  test("a live entry carries no backfill flag at all", () => {
+    expect("backfill" in buildEvent({ op: "create", subject: SUBJECT, via: "slack" })).toBe(false);
+  });
 });
 
 describe("logEvent", () => {
