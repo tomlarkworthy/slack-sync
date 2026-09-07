@@ -21,8 +21,8 @@ max_batch_timeout = 2
 max_retries = 5
 dead_letter_queue = "slack-events-dlq"
 
-# Reverse half (Colibri -> Slack). No producer binding writes here yet other
-# than POST /atproto/inject; the Jetstream tail comes later.
+# Reverse half (Colibri -> Slack). Producers: the JetstreamTail Durable Object
+# (alarm every 10 s) and POST /atproto/inject (hand feed).
 #   wrangler queues create atproto-events
 #   wrangler queues create atproto-events-dlq
 [[queues.producers]]
@@ -35,6 +35,17 @@ max_batch_size = 10
 max_batch_timeout = 2
 max_retries = 5
 dead_letter_queue = "atproto-events-dlq"
+
+# Jetstream tail. One instance ("tail"), started with POST /tail/start.
+[durable_objects]
+bindings = [{ name = "JETSTREAM_TAIL", class_name = "JetstreamTail" }]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["JetstreamTail"]
+
+[triggers]
+crons = ["*/1 * * * *"]
 
 # D1 cache: dumb mirror of atproto records by (repo, collection, rkey), plus
 # private oauth_tokens table (v2). See the proposal's Storage model section.

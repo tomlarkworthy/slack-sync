@@ -35,6 +35,7 @@ import {
   tidFromSlackTs,
 } from "./atproto";
 import { handleAtprotoEvent, isJetstreamCommit, MIRROR_EVENT_TYPE, type JetstreamEvent } from "./reverse";
+export { JetstreamTail } from "./tail";
 
 const BOT_SLACK_USER_ID = "U0B7685PHGD"; // focbridge
 const SLACK_RAW_COLLECTION = "com.feelingofcomputing.bridge.slackRaw";
@@ -47,6 +48,7 @@ export interface Env {
   INJECT_TOKEN?: string; // bearer for POST /atproto/inject
   EVENTS: Queue<SlackEventCallback>;
   EVENTS_ATPROTO: Queue<JetstreamEvent>;
+  JETSTREAM_TAIL: DurableObjectNamespace;
 }
 const SLACK_QUEUE = "slack-events";
 const ATPROTO_QUEUE = "atproto-events";
@@ -598,7 +600,7 @@ async function unpublishReaction(
 // enough: the bot's own user id, a bot_id (no other bot has ever posted in a
 // bridged channel: 0 of 3072 archived events, 2026-09-07), or the metadata
 // event_type the reverse half stamps on every post.
-function isSelfSlackEvent(ev: SlackEvent | undefined): boolean {
+export function isSelfSlackEvent(ev: SlackEvent | undefined): boolean {
   if (!ev) return false;
   if (ev.type === "message") {
     const m = ev as SlackMessageEvent;
@@ -687,7 +689,22 @@ export default {
       });
     }
 
+    // Jetstream tail control, same bearer as /atproto/inject.
+    if (url.pathname.startsWith("/tail/")) {
+      if (!env.INJECT_TOKEN || request.headers.get("Authorization") !== `Bearer ${env.INJECT_TOKEN}`) {
+        return new Response("unauthorized", { status: 401 });
+      }
+      const stub = env.JETSTREAM_TAIL.get(env.JETSTREAM_TAIL.idFromName("tail"));
+      return stub.fetch(`https://tail${url.pathname.slice("/tail".length)}`, { method: request.method });
+    }
+
     return new Response("not found", { status: 404 });
+  },
+
+  // Cron: re-arm the tail's alarm if it was ever lost. A no-op while it is set.
+  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
+    const stub = env.JETSTREAM_TAIL.get(env.JETSTREAM_TAIL.idFromName("tail"));
+    await stub.fetch("https://tail/poke", { method: "POST" });
   },
 
   async queue(
