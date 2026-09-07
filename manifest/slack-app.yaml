@@ -39,8 +39,11 @@ oauth_config:
       - emoji:read
       - files:read
       - reactions:read
-      # No write scopes: the bridge is read-only on the Slack side. Posting
-      # back from atproto into Slack is not in scope.
+      # Reverse path (Colibri -> Slack), added 2026-09-07. The bot posts under
+      # its own user with an `@name:` byline; the forward path skips its posts.
+      - chat:write            # chat.postMessage / chat.update / chat.delete (own messages)
+      - chat:write.customize  # per-post username + icon_url = the Colibri author
+      - reactions:write       # reactions.add / reactions.remove
 
 settings:
   event_subscriptions:

@@ -21,6 +21,21 @@ max_batch_timeout = 2
 max_retries = 5
 dead_letter_queue = "slack-events-dlq"
 
+# Reverse half (Colibri -> Slack). No producer binding writes here yet other
+# than POST /atproto/inject; the Jetstream tail comes later.
+#   wrangler queues create atproto-events
+#   wrangler queues create atproto-events-dlq
+[[queues.producers]]
+binding = "EVENTS_ATPROTO"
+queue = "atproto-events"
+
+[[queues.consumers]]
+queue = "atproto-events"
+max_batch_size = 10
+max_batch_timeout = 2
+max_retries = 5
+dead_letter_queue = "atproto-events-dlq"
+
 # D1 cache: dumb mirror of atproto records by (repo, collection, rkey), plus
 # private oauth_tokens table (v2). See the proposal's Storage model section.
 # Uncomment once the DB is created:
@@ -35,3 +50,4 @@ dead_letter_queue = "slack-events-dlq"
 #   SLACK_BOT_TOKEN
 #   BSKY_HANDLE
 #   BSKY_APP_PASSWORD     # or v2: BSKY_OAUTH_REFRESH_TOKEN
+#   INJECT_TOKEN          # bearer for POST /atproto/inject (reverse half test producer)

@@ -17,44 +17,39 @@
 //          reaction_removed -> delete  social.colibri.reaction
 //     Throws on failure -> CF retries up to max_retries -> dead-letters.
 //
-// Channel map is hardcoded — channel additions require a redeploy. Will
-// migrate to KV once the channel set is no longer hand-maintained.
+//   queue() also drains `atproto-events` (Colibri -> Slack, see reverse.ts).
+//   That queue has no producer wired yet: POST /atproto/inject feeds it by
+//   hand while the reverse half is under test, so nothing can loop.
+//
+// Channel map lives in channels.ts — channel additions require a redeploy.
 
-import {
-  aliases as EMOJI_ALIASES,
-  entries as EMOJI_ENTRIES,
-} from "./emoji-data";
 import { didForSlackUser } from "./slack-to-did";
+import { CHANNEL_MAP } from "./channels";
+import { emojiForName } from "./emoji";
+import {
+  deleteRecord,
+  getBskySession,
+  hash10,
+  PDS,
+  putRecord,
+  tidFromSlackTs,
+} from "./atproto";
+import { handleAtprotoEvent, isJetstreamCommit, MIRROR_EVENT_TYPE, type JetstreamEvent } from "./reverse";
 
-const PDS = "https://bsky.social";
-const BOT_SLACK_USER_ID = "U0B7685PHGD"; // focbridge; skip its own join messages
+const BOT_SLACK_USER_ID = "U0B7685PHGD"; // focbridge
 const SLACK_RAW_COLLECTION = "com.feelingofcomputing.bridge.slackRaw";
-
-// Slack channel id -> Colibri channel rkey on the community owner's repo.
-// Mirror of tools/slack-to-colibri-channel.json on the backfill side.
-// All under new "Feeling of Computing" community (3mn5nudqvhs2x) on
-// did:plc:j7nm3lrd5h7fm3sfhcv3lhfv.
-const CHANNEL_MAP: Record<string, string> = {
-  C01932BJGE8: "3mn5tlwafrh2k", // present-company
-  CCL5VVBAN:   "3mn5tmbyexz27", // share-your-work
-  C5T9GPWFL:   "3mn5tmllqd72d", // thinking-together
-  C050QK4917D: "3mn5tlntcfa2f", // of-ai
-  C03RR0W5DGC: "3mn5tk5v4yr2s", // devlog-together
-  C5U3SEW6A:   "3mn5tle5l7c2z", // linking-together
-  CEXED56UR:   "3mn5tjjdnai2t", // administrivia
-  CGMJ7323Z:   "3mn5tjsyuvt2t", // announcements
-  CC2JRGVLK:   "3mn5tkvfo2j2s", // introduce-yourself
-  C0120A3L30R: "3mn5tn53kwy2w", // two-minute-week
-  C0B7BGKT8MP: "3mn5tckh3ij24", // test-01
-};
 
 export interface Env {
   SLACK_SIGNING_SECRET?: string;
   SLACK_BOT_TOKEN?: string;
   BSKY_HANDLE?: string;
   BSKY_APP_PASSWORD?: string;
+  INJECT_TOKEN?: string; // bearer for POST /atproto/inject
   EVENTS: Queue<SlackEventCallback>;
+  EVENTS_ATPROTO: Queue<JetstreamEvent>;
 }
+const SLACK_QUEUE = "slack-events";
+const ATPROTO_QUEUE = "atproto-events";
 
 // ── shared types ────────────────────────────────────────────────────────────
 interface SlackUrlVerification {
@@ -83,12 +78,15 @@ interface SlackFile {
 }
 interface SlackMessageInner {
   user?: string;
+  bot_id?: string;
+  subtype?: string;
   text?: string;
   ts?: string;
   thread_ts?: string;
   blocks?: SlackBlock[];
   edited?: { user: string; ts: string };
   files?: SlackFile[];
+  metadata?: { event_type?: string };
 }
 interface SlackMessageEvent extends SlackMessageInner {
   type: "message";
@@ -157,41 +155,6 @@ async function verifySlackSignature(
     diff |= computed.charCodeAt(i) ^ signatureHeader.charCodeAt(i);
   }
   return diff === 0;
-}
-
-// ── TID derivation (matches backfill) ──────────────────────────────────────
-const TID_ALPHABET = "234567abcdefghijklmnopqrstuvwxyz";
-function tidFromMicros(microseconds: bigint, clockId = 0): string {
-  let n = (microseconds << 10n) | BigInt(clockId & 0x3ff);
-  const chars: string[] = [];
-  for (let i = 0; i < 13; i++) {
-    chars.push(TID_ALPHABET[Number(n & 0x1fn)]!);
-    n >>= 5n;
-  }
-  return chars.reverse().join("");
-}
-function tidFromSlackTs(ts: string, clockId = 0): string {
-  const [sec, usecRaw = ""] = ts.split(".");
-  const usec = (usecRaw + "000000").slice(0, 6);
-  return tidFromMicros(BigInt(sec!) * 1_000_000n + BigInt(usec), clockId);
-}
-function hash10(s: string): number {
-  let h = 0;
-  for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0;
-  return Math.abs(h) & 0x3ff;
-}
-
-// ── emoji map ───────────────────────────────────────────────────────────────
-const EMOJI_MAP = new Map<string, string>();
-for (const [name, unicode] of EMOJI_ENTRIES as Array<[string, string]>) {
-  EMOJI_MAP.set(name, unicode);
-}
-for (const [name, unicode] of Object.entries(EMOJI_ALIASES)) {
-  EMOJI_MAP.set(name, unicode as string);
-}
-function emojiForName(name: string): string {
-  const base = name.split("::")[0]!;
-  return EMOJI_MAP.get(base) ?? `:${name}:`;
 }
 
 // ── facet builder + blocks walker ──────────────────────────────────────────
@@ -381,60 +344,6 @@ async function getDisplayName(userId: string, botToken: string): Promise<string>
   } catch {
     return userId;
   }
-}
-
-// ── bsky session (cached per isolate) ──────────────────────────────────────
-let cachedSession: { did: string; accessJwt: string; expiresAt: number } | null = null;
-async function getBskySession(env: Env) {
-  if (cachedSession && cachedSession.expiresAt > Date.now() + 60_000) {
-    return cachedSession;
-  }
-  const r = await fetch(`${PDS}/xrpc/com.atproto.server.createSession`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ identifier: env.BSKY_HANDLE, password: env.BSKY_APP_PASSWORD }),
-  });
-  if (!r.ok) throw new Error(`bsky login: ${r.status} ${await r.text()}`);
-  const j = (await r.json()) as { did: string; accessJwt: string };
-  cachedSession = { ...j, expiresAt: Date.now() + 90 * 60 * 1000 };
-  return cachedSession;
-}
-
-async function putRecord(
-  sess: { did: string; accessJwt: string },
-  collection: string,
-  rkey: string,
-  record: unknown,
-) {
-  const r = await fetch(`${PDS}/xrpc/com.atproto.repo.putRecord`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${sess.accessJwt}`,
-    },
-    body: JSON.stringify({ repo: sess.did, collection, rkey, record }),
-  });
-  if (!r.ok) throw new Error(`putRecord ${collection}/${rkey}: ${r.status} ${await r.text()}`);
-  return await r.json();
-}
-
-async function deleteRecord(
-  sess: { did: string; accessJwt: string },
-  collection: string,
-  rkey: string,
-) {
-  const r = await fetch(`${PDS}/xrpc/com.atproto.repo.deleteRecord`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${sess.accessJwt}`,
-    },
-    body: JSON.stringify({ repo: sess.did, collection, rkey }),
-  });
-  // 404 = already gone; treat as success (idempotent)
-  if (r.status === 404) return null;
-  if (!r.ok) throw new Error(`deleteRecord ${collection}/${rkey}: ${r.status} ${await r.text()}`);
-  return await r.json();
 }
 
 // ── file attachment bridging ───────────────────────────────────────────────
@@ -683,6 +592,33 @@ async function unpublishReaction(
   return `deleted reaction rkey=${rkey} :${ev.reaction}:`;
 }
 
+// ── loop guard ─────────────────────────────────────────────────────────────
+// Everything the reverse half writes into Slack comes back through the Events
+// API. Skip it before it is archived or derived. Three signals, any one is
+// enough: the bot's own user id, a bot_id (no other bot has ever posted in a
+// bridged channel: 0 of 3072 archived events, 2026-09-07), or the metadata
+// event_type the reverse half stamps on every post.
+function isSelfSlackEvent(ev: SlackEvent | undefined): boolean {
+  if (!ev) return false;
+  if (ev.type === "message") {
+    const m = ev as SlackMessageEvent;
+    const inner: SlackMessageInner | undefined =
+      m.subtype === "message_changed" ? m.message
+      : m.subtype === "message_deleted" ? m.previous_message
+      : m;
+    return (
+      inner?.user === BOT_SLACK_USER_ID ||
+      !!inner?.bot_id ||
+      inner?.subtype === "bot_message" ||
+      inner?.metadata?.event_type === MIRROR_EVENT_TYPE
+    );
+  }
+  if (ev.type === "reaction_added" || ev.type === "reaction_removed") {
+    return (ev as SlackReactionEvent).user === BOT_SLACK_USER_ID;
+  }
+  return false;
+}
+
 // ── entry ──────────────────────────────────────────────────────────────────
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -729,17 +665,68 @@ export default {
       return new Response("unknown envelope type", { status: 400 });
     }
 
+    // Manual producer for the reverse half: a Jetstream-shaped commit event
+    // (or an array of them), bearer-authenticated, straight onto the queue.
+    if (request.method === "POST" && url.pathname === "/atproto/inject") {
+      if (!env.INJECT_TOKEN || request.headers.get("Authorization") !== `Bearer ${env.INJECT_TOKEN}`) {
+        return new Response("unauthorized", { status: 401 });
+      }
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return new Response("invalid json", { status: 400 });
+      }
+      const events = Array.isArray(body) ? body : [body];
+      if (!events.every(isJetstreamCommit)) {
+        return new Response("expected jetstream commit event(s)", { status: 400 });
+      }
+      for (const e of events) await env.EVENTS_ATPROTO.send(e as JetstreamEvent);
+      return new Response(JSON.stringify({ enqueued: events.length }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     return new Response("not found", { status: 404 });
   },
 
   async queue(
-    batch: MessageBatch<SlackEventCallback>,
+    batch: MessageBatch<SlackEventCallback | JetstreamEvent>,
     env: Env,
   ): Promise<void> {
-    for (const msg of batch.messages) {
+    if (batch.queue === ATPROTO_QUEUE) {
+      for (const msg of batch.messages as Message<JetstreamEvent>[]) {
+        const e = msg.body;
+        const label = isJetstreamCommit(e) ? `${e.did}/${e.commit.collection}/${e.commit.rkey} ${e.commit.operation}` : e.kind;
+        try {
+          const result = await handleAtprotoEvent(e, env);
+          console.log("atproto", label, result);
+          msg.ack();
+        } catch (err) {
+          console.error("atproto", label, "FAILED", err instanceof Error ? err.message : err);
+          msg.retry();
+        }
+      }
+      return;
+    }
+    if (batch.queue !== SLACK_QUEUE) {
+      console.warn("unknown queue", batch.queue);
+      for (const msg of batch.messages) msg.ack();
+      return;
+    }
+    for (const msg of batch.messages as Message<SlackEventCallback>[]) {
       const envelope = msg.body;
       const eventId = envelope.event_id ?? "?";
       const ev = envelope.event;
+      if (isSelfSlackEvent(ev)) {
+        const m = (ev as SlackMessageEvent).message ?? (ev as SlackMessageEvent).previous_message ?? (ev as SlackMessageInner);
+        console.log("event", eventId, "skip self", JSON.stringify({
+          type: ev?.type, subtype: (ev as SlackMessageEvent).subtype, user: (ev as SlackReactionEvent).user ?? m.user,
+          bot_id: m.bot_id, metadata: m.metadata?.event_type,
+        }));
+        msg.ack();
+        continue;
+      }
       try {
         // 1. lossless archive first
         const rawResult = await writeSlackRaw(envelope, env);

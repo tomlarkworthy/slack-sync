@@ -2,7 +2,7 @@
 
 Cloudflare Worker for the real-time forward bridge. Slack Events API webhook -> CF Queue -> atproto.
 
-Skeleton only at this stage. See `src/index.ts` for the TODO outline.
+Forward half live since 2026-05-31; reverse half (Colibri -> Slack) landed 2026-09-07 without its Jetstream producer.
 
 ## Bring up
 
@@ -19,6 +19,9 @@ wrangler secret put BSKY_APP_PASSWORD
 # infra (uncomment the corresponding bindings in wrangler.toml first)
 wrangler queues create slack-events
 wrangler queues create slack-events-dlq
+wrangler queues create atproto-events
+wrangler queues create atproto-events-dlq
+wrangler secret put INJECT_TOKEN
 wrangler d1 create slack-sync-cache
 
 # dev (tunnel + live reload)
@@ -37,5 +40,7 @@ After deploy, set the Slack app's **Event Subscriptions -> Request URL** to `htt
 | `POST /slack/events` | Verify HMAC, enqueue payload, ack <3s. |
 | Queue consumer | Capture as `slackRaw`, derive `social.colibri.message`, link via `slackOrigin`, project reactions, upload file blobs. |
 | `GET /health` | Liveness check for monitoring. |
+| `POST /atproto/inject` | Reverse half test producer: bearer `INJECT_TOKEN`, body = one Jetstream commit event or an array, enqueued to `atproto-events`. `bun scripts/inject.ts at://…` builds one from a live record. |
+| Queue consumer `atproto-events` | Reverse half (`src/reverse.ts`): mirror `social.colibri.message` / `.reaction` from any author except the bot into Slack as the bot user, `@name:` byline, `slackMirror` record per mirrored record for idempotency and lookups. No Jetstream producer is wired yet. |
 
 See the design proposal (PR #20) for HMAC verification details, the dedupe model (deterministic rkeys -> putRecord upsert), and the read-modify-write pattern for category `channelOrder` updates.
