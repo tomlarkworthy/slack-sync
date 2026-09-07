@@ -24,8 +24,9 @@ import {
   slackTsFromTid,
   type AtprotoEnv,
 } from "./atproto";
-import { channelForRef } from "./channels";
+import { channelForRef, channelForSlackId } from "./channels";
 import { emojiNameFor } from "./emoji";
+import { logEvent } from "./eventlog";
 import { renderFacets, escapeMrkdwn, type ColibriFacet } from "./mrkdwn";
 import { SLACK_USER_DID_MAP } from "./slack-to-did";
 
@@ -236,9 +237,18 @@ async function mirrorMessage(ev: JetstreamCommit, env: ReverseEnv): Promise<stri
     return `skip already mirrored ${rkey} -> ${existing.value.slackChannelId}/${existing.value.slackTs}`;
   }
 
+  const sess = await getBskySession(env);
+  // Logged before the Slack call so the feed carries the record even if the
+  // post fails; see eventlog.ts on the duplicate a retry can produce.
+  const note = await logEvent(sess, {
+    op: ev.commit.operation === "update" ? "update" : "create",
+    subject: source,
+    cid: ev.commit.cid,
+    channel: ch.oldRkey,
+    via: "colibri",
+  });
   const author = await resolveAuthor(ev.did);
   const text = await renderMessage(ev.did, rec);
-  const sess = await getBskySession(env);
   const metadata = { event_type: MIRROR_EVENT_TYPE, event_payload: { uri: source, cid: ev.commit.cid ?? "" } };
 
   if (existing) {
@@ -252,7 +262,7 @@ async function mirrorMessage(ev: JetstreamCommit, env: ReverseEnv): Promise<stri
       ...existing.value,
       sourceCid: ev.commit.cid,
     } satisfies Mirror);
-    return `updated ${rkey} -> ${existing.value.slackChannelId}/${existing.value.slackTs}`;
+    return `updated ${rkey} -> ${existing.value.slackChannelId}/${existing.value.slackTs}${note}`;
   }
 
   let threadTs: string | undefined;
@@ -285,20 +295,28 @@ async function mirrorMessage(ev: JetstreamCommit, env: ReverseEnv): Promise<stri
     slackThreadTs: threadTs ?? res.ts,
     postedAt: new Date().toISOString(),
   } satisfies Mirror);
-  return `posted ${rkey} -> ${ch.slack}/${res.ts}${threadTs ? ` in thread ${threadTs}` : ""}${threadNote}`;
+  return `posted ${rkey} -> ${ch.slack}/${res.ts}${threadTs ? ` in thread ${threadTs}` : ""}${threadNote}${note}`;
 }
 
 async function unmirrorMessage(ev: JetstreamCommit, env: ReverseEnv): Promise<string> {
   const rkey = ev.commit.rkey;
   const m = await getMirror(rkey);
+  // A delete commit carries no record, so the mirror is the only evidence the
+  // record was ever FoC's. One we never mirrored cannot be logged.
   if (!m) return `skip delete of unmirrored ${rkey}`;
+  const sess = await getBskySession(env);
+  const note = await logEvent(sess, {
+    op: "delete",
+    subject: m.value.source,
+    channel: channelForSlackId(m.value.slackChannelId)?.oldRkey,
+    via: "colibri",
+  });
   await slack(env, "chat.delete", { channel: m.value.slackChannelId, ts: m.value.slackTs }, [
     "message_not_found",
     "cant_delete_message",
   ]);
-  const sess = await getBskySession(env);
   await deleteRecord(sess, MIRROR_COLLECTION, rkey);
-  return `deleted ${rkey} -> ${m.value.slackChannelId}/${m.value.slackTs}`;
+  return `deleted ${rkey} -> ${m.value.slackChannelId}/${m.value.slackTs}${note}`;
 }
 
 async function mirrorReaction(ev: JetstreamCommit, env: ReverseEnv): Promise<string> {
@@ -313,10 +331,19 @@ async function mirrorReaction(ev: JetstreamCommit, env: ReverseEnv): Promise<str
   if (!name) return `skip reaction: no Slack name for ${JSON.stringify(rec.emoji)}`;
   const coords = await slackCoordsFor(target);
   if (!coords) return `skip reaction: target ${target.did}/${target.rkey} not mirrored`;
+  const sess = await getBskySession(env);
+  // A resolvable target is what makes a reaction FoC's; the channel comes from
+  // the target's Slack side, since the reaction record names no channel.
+  const note = await logEvent(sess, {
+    op: ev.commit.operation === "update" ? "update" : "create",
+    subject: `at://${ev.did}/social.colibri.reaction/${rkey}`,
+    cid: ev.commit.cid,
+    channel: channelForSlackId(coords.channel)?.oldRkey,
+    via: "colibri",
+  });
   await slack(env, "reactions.add", { channel: coords.channel, timestamp: coords.ts, name }, [
     "already_reacted",
   ]);
-  const sess = await getBskySession(env);
   await putRecord(sess, MIRROR_COLLECTION, rkey, {
     $type: MIRROR_COLLECTION,
     source: `at://${ev.did}/social.colibri.reaction/${rkey}`,
@@ -326,20 +353,26 @@ async function mirrorReaction(ev: JetstreamCommit, env: ReverseEnv): Promise<str
     emojiName: name,
     postedAt: new Date().toISOString(),
   } satisfies Mirror);
-  return `reacted :${name}: ${rkey} -> ${coords.channel}/${coords.ts}`;
+  return `reacted :${name}: ${rkey} -> ${coords.channel}/${coords.ts}${note}`;
 }
 
 async function unmirrorReaction(ev: JetstreamCommit, env: ReverseEnv): Promise<string> {
   const rkey = ev.commit.rkey;
   const m = await getMirror(rkey);
   if (!m || !m.value.emojiName) return `skip delete of unmirrored reaction ${rkey}`;
+  const sess = await getBskySession(env);
+  const note = await logEvent(sess, {
+    op: "delete",
+    subject: m.value.source,
+    channel: channelForSlackId(m.value.slackChannelId)?.oldRkey,
+    via: "colibri",
+  });
   await slack(
     env,
     "reactions.remove",
     { channel: m.value.slackChannelId, timestamp: m.value.slackTs, name: m.value.emojiName },
     ["no_reaction", "message_not_found"],
   );
-  const sess = await getBskySession(env);
   await deleteRecord(sess, MIRROR_COLLECTION, rkey);
-  return `unreacted :${m.value.emojiName}: ${rkey}`;
+  return `unreacted :${m.value.emojiName}: ${rkey}${note}`;
 }

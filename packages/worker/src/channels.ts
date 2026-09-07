@@ -51,3 +51,12 @@ export function channelForRef(ref: string | undefined): Channel | undefined {
   if (!ref) return undefined;
   return BY_REF.get(ref);
 }
+
+const BY_SLACK = new Map(CHANNELS.map((c) => [c.slack, c]));
+
+// A Slack channel id -> the channel. Used where only the Slack side is known,
+// e.g. a slackMirror record, which stores Slack coordinates and no rkey.
+export function channelForSlackId(id: string | undefined): Channel | undefined {
+  if (!id) return undefined;
+  return BY_SLACK.get(id);
+}

@@ -25,6 +25,7 @@
 
 import { didForSlackUser } from "./slack-to-did";
 import { CHANNEL_MAP } from "./channels";
+import { logEvent } from "./eventlog";
 import { emojiForName } from "./emoji";
 import {
   deleteRecord,
@@ -579,8 +580,15 @@ async function publishMessage(
   else if (parentRkey) record["parent"] = parentRkey;
   if (opts.edited) record["edited"] = true;
 
-  await putRecord(sess, "social.colibri.message", rkey, record);
-  return `${opts.edited ? "edited" : "published"} message rkey=${rkey} channel=${fields.channel}->${colibriChannel} files=${attachments.length}${fileSkipNotes.length ? `+${fileSkipNotes.length}skipped` : ""}${nativeParent ? ` parent=${nativeParent}` : ""}`;
+  const put = (await putRecord(sess, "social.colibri.message", rkey, record)) as { cid?: string };
+  const note = await logEvent(sess, {
+    op: opts.edited ? "update" : "create",
+    subject: `at://${sess.did}/social.colibri.message/${rkey}`,
+    cid: put?.cid,
+    channel: colibriChannel,
+    via: "slack",
+  });
+  return `${opts.edited ? "edited" : "published"} message rkey=${rkey} channel=${fields.channel}->${colibriChannel} files=${attachments.length}${fileSkipNotes.length ? `+${fileSkipNotes.length}skipped` : ""}${nativeParent ? ` parent=${nativeParent}` : ""}${note}`;
 }
 
 async function unpublishMessage(
@@ -595,7 +603,13 @@ async function unpublishMessage(
   const rkey = tidFromSlackTs(deletedTs);
   const sess = await getBskySession(env);
   await deleteRecord(sess, "social.colibri.message", rkey);
-  return `deleted message rkey=${rkey} channel=${channel}`;
+  const note = await logEvent(sess, {
+    op: "delete",
+    subject: `at://${sess.did}/social.colibri.message/${rkey}`,
+    channel: CHANNEL_MAP[channel],
+    via: "slack",
+  });
+  return `deleted message rkey=${rkey} channel=${channel}${note}`;
 }
 
 // ── reaction publish / delete ──────────────────────────────────────────────
@@ -621,13 +635,20 @@ async function publishReaction(
   // appview does not render records without it. `targetMessage` (bare rkey)
   // is our pre-lexicon field, kept for readers of the bot repo (foc-viewer);
   // it has no meaning for a reaction on a native (mirrored) message.
-  await putRecord(sess, "social.colibri.reaction", rkey, {
+  const put = (await putRecord(sess, "social.colibri.reaction", rkey, {
     $type: "social.colibri.reaction",
     emoji: emojiForName(ev.reaction),
     parent: native ?? `at://${sess.did}/social.colibri.message/${targetRkey}`,
     ...(native ? {} : { targetMessage: targetRkey }),
+  })) as { cid?: string };
+  const note = await logEvent(sess, {
+    op: "create",
+    subject: `at://${sess.did}/social.colibri.reaction/${rkey}`,
+    cid: put?.cid,
+    channel: colibriChannel,
+    via: "slack",
   });
-  return `published reaction rkey=${rkey} :${ev.reaction}: -> ${native ?? targetRkey}`;
+  return `published reaction rkey=${rkey} :${ev.reaction}: -> ${native ?? targetRkey}${note}`;
 }
 
 async function unpublishReaction(
@@ -640,7 +661,13 @@ async function unpublishReaction(
   const rkey = tidForReaction(ev.item.ts, ev.reaction);
   const sess = await getBskySession(env);
   await deleteRecord(sess, "social.colibri.reaction", rkey);
-  return `deleted reaction rkey=${rkey} :${ev.reaction}:`;
+  const note = await logEvent(sess, {
+    op: "delete",
+    subject: `at://${sess.did}/social.colibri.reaction/${rkey}`,
+    channel: CHANNEL_MAP[ev.item.channel],
+    via: "slack",
+  });
+  return `deleted reaction rkey=${rkey} :${ev.reaction}:${note}`;
 }
 
 // ── loop guard ─────────────────────────────────────────────────────────────
