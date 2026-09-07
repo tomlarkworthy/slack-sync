@@ -3,7 +3,7 @@
 // Jetstream actually deliver.
 import { describe, expect, test } from "bun:test";
 import { BOT_DID } from "../src/atproto";
-import { isSelfSlackEvent } from "../src/index";
+import { isSelfSlackEvent, mirrorUriIn } from "../src/index";
 import { handleAtprotoEvent, MIRROR_EVENT_TYPE } from "../src/reverse";
 import { wantEvent } from "../src/tail";
 
@@ -70,5 +70,19 @@ describe("reverse guard: bot-repo commits are dropped before any network call", 
     expect(wantEvent(commit("did:plc:someone", "social.colibri.reaction", "create", { parent: "at://x/social.colibri.message/y" }))).not.toBeNull();
     expect(wantEvent(commit("did:plc:someone", "app.bsky.feed.post", "create", {}))).toBeNull();
     expect(wantEvent({ did: "did:plc:someone", time_us: 1, kind: "identity" })).toBeNull();
+  });
+});
+
+describe("forward lookup: Slack activity on a mirrored post targets the Colibri original", () => {
+  const uri = "at://did:plc:j7nm3lrd5h7fm3sfhcv3lhfv/social.colibri.message/3muwl2r2ehcww";
+  const mirrored = { ts: "1788794724.510389", user: BOT, text: "hello", metadata: { event_type: MIRROR_EVENT_TYPE, event_payload: { uri, cid: "bafy" } } };
+  test("metadata on the matching message yields the source uri", () => {
+    expect(mirrorUriIn([mirrored], mirrored.ts)).toBe(uri);
+    expect(mirrorUriIn([mirrored, { ts: "1788794755.113299", user: HUMAN, text: "reply" }], "1788794755.113299")).toBeUndefined();
+  });
+  test("a bridged (forward) post carries no mirror metadata", () => {
+    expect(mirrorUriIn([{ ts: "1", user: HUMAN, text: "x" }], "1")).toBeUndefined();
+    expect(mirrorUriIn([{ ts: "1", user: BOT, text: "x", metadata: { event_type: "other", event_payload: { uri } } }], "1")).toBeUndefined();
+    expect(mirrorUriIn(undefined, "1")).toBeUndefined();
   });
 });

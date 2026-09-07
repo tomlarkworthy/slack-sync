@@ -88,7 +88,8 @@ interface SlackMessageInner {
   blocks?: SlackBlock[];
   edited?: { user: string; ts: string };
   files?: SlackFile[];
-  metadata?: { event_type?: string };
+  metadata?: { event_type?: string; event_payload?: { uri?: string; cid?: string } };
+  parent_user_id?: string; // thread replies: author of the root
 }
 interface SlackMessageEvent extends SlackMessageInner {
   type: "message";
@@ -105,6 +106,7 @@ interface SlackReactionEvent {
   user?: string;
   reaction: string;
   item?: { type: string; channel: string; ts: string };
+  item_user?: string; // author of the reacted-to message
   event_ts?: string;
 }
 type SlackBlock = { type: string; elements?: SlackBlockElement[] };
@@ -323,6 +325,45 @@ function walkSectionItem(
   }
 }
 
+// ── mirrored-post lookup ───────────────────────────────────────────────────
+// A Slack message the reverse half posted carries metadata
+// {event_type: "colibri_mirror", event_payload: {uri}}. A reply or reaction on
+// it belongs to that Colibri record, not to tidFromSlackTs(ts) in the bot
+// repo (which names nothing). Read the metadata back with conversations.replies
+// (channels:history), only when the message's author is the bot.
+export function mirrorUriIn(messages: SlackMessageInner[] | undefined, ts: string): string | undefined {
+  const m = messages?.find((x) => x.ts === ts);
+  if (m?.metadata?.event_type !== MIRROR_EVENT_TYPE) return undefined;
+  const uri = m.metadata.event_payload?.uri;
+  return typeof uri === "string" && uri.startsWith("at://") ? uri : undefined;
+}
+
+const mirrorUriCache = new Map<string, string | null>();
+async function mirrorSourceFor(channel: string, ts: string, author: string | undefined, botToken: string): Promise<string | undefined> {
+  if (author !== undefined && author !== BOT_SLACK_USER_ID) return undefined;
+  const key = `${channel}/${ts}`;
+  const hit = mirrorUriCache.get(key);
+  if (hit !== undefined) return hit ?? undefined;
+  let uri: string | undefined;
+  try {
+    const u = new URL("https://slack.com/api/conversations.replies");
+    u.searchParams.set("channel", channel);
+    u.searchParams.set("ts", ts);
+    u.searchParams.set("limit", "1");
+    u.searchParams.set("inclusive", "true");
+    u.searchParams.set("include_all_metadata", "true");
+    const r = await fetch(u, { headers: { Authorization: `Bearer ${botToken}` } });
+    const j = (await r.json()) as { ok: boolean; error?: string; messages?: SlackMessageInner[] };
+    if (!j.ok) console.warn("conversations.replies", key, j.error);
+    uri = mirrorUriIn(j.messages, ts);
+  } catch (err) {
+    console.warn("conversations.replies", key, err instanceof Error ? err.message : err);
+    return undefined; // not cached: retry on the next event
+  }
+  mirrorUriCache.set(key, uri ?? null);
+  return uri;
+}
+
 // ── Slack user resolution (cached per isolate) ─────────────────────────────
 const userNameCache = new Map<string, string>();
 async function getDisplayName(userId: string, botToken: string): Promise<string> {
@@ -518,8 +559,13 @@ async function publishMessage(
   }
 
   const rkey = tidFromSlackTs(fields.ts);
-  const parentRkey =
-    fields.thread_ts && fields.thread_ts !== fields.ts ? tidFromSlackTs(fields.thread_ts) : undefined;
+  const inThread = !!fields.thread_ts && fields.thread_ts !== fields.ts;
+  // Root posted by the reverse half -> parent is the native record (at-uri);
+  // otherwise the bridged root's own rkey, as always.
+  const nativeParent = inThread
+    ? await mirrorSourceFor(fields.channel!, fields.thread_ts!, fields.parent_user_id, env.SLACK_BOT_TOKEN!)
+    : undefined;
+  const parentRkey = inThread && !nativeParent ? tidFromSlackTs(fields.thread_ts!) : undefined;
 
   const record: Record<string, unknown> = {
     $type: "social.colibri.message",
@@ -529,11 +575,12 @@ async function publishMessage(
     facets,
     attachments,
   };
-  if (parentRkey) record["parent"] = parentRkey;
+  if (nativeParent) record["parent"] = nativeParent;
+  else if (parentRkey) record["parent"] = parentRkey;
   if (opts.edited) record["edited"] = true;
 
   await putRecord(sess, "social.colibri.message", rkey, record);
-  return `${opts.edited ? "edited" : "published"} message rkey=${rkey} channel=${fields.channel}->${colibriChannel} files=${attachments.length}${fileSkipNotes.length ? `+${fileSkipNotes.length}skipped` : ""}`;
+  return `${opts.edited ? "edited" : "published"} message rkey=${rkey} channel=${fields.channel}->${colibriChannel} files=${attachments.length}${fileSkipNotes.length ? `+${fileSkipNotes.length}skipped` : ""}${nativeParent ? ` parent=${nativeParent}` : ""}`;
 }
 
 async function unpublishMessage(
@@ -569,16 +616,18 @@ async function publishReaction(
   const targetRkey = tidFromSlackTs(ev.item.ts);
   const rkey = tidForReaction(ev.item.ts, ev.reaction);
   const sess = await getBskySession(env);
+  const native = await mirrorSourceFor(ev.item.channel, ev.item.ts, ev.item_user, env.SLACK_BOT_TOKEN!);
+  // Colibri's lexicon (main, 2026-09-07) requires `parent` as an at-uri; the
+  // appview does not render records without it. `targetMessage` (bare rkey)
+  // is our pre-lexicon field, kept for readers of the bot repo (foc-viewer);
+  // it has no meaning for a reaction on a native (mirrored) message.
   await putRecord(sess, "social.colibri.reaction", rkey, {
     $type: "social.colibri.reaction",
     emoji: emojiForName(ev.reaction),
-    // Colibri's lexicon (main, 2026-09-07) requires `parent` as an at-uri; the
-    // appview does not render records without it. `targetMessage` (bare rkey)
-    // is our pre-lexicon field, kept for readers of the bot repo (foc-viewer).
-    parent: `at://${sess.did}/social.colibri.message/${targetRkey}`,
-    targetMessage: targetRkey,
+    parent: native ?? `at://${sess.did}/social.colibri.message/${targetRkey}`,
+    ...(native ? {} : { targetMessage: targetRkey }),
   });
-  return `published reaction rkey=${rkey} :${ev.reaction}: -> ${targetRkey}`;
+  return `published reaction rkey=${rkey} :${ev.reaction}: -> ${native ?? targetRkey}`;
 }
 
 async function unpublishReaction(
