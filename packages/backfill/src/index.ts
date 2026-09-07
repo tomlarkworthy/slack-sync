@@ -399,7 +399,7 @@ function emojiForReaction(name: string): string {
 // (they'd all author from the bot anyway and the appview likely dedupes by
 // (author, emoji, target)). Multi-reactor count is preserved losslessly in
 // `slackRaw`.
-function reactionsFor(m: any, targetMessageRkey: string) {
+function reactionsFor(m: any, targetMessageRkey: string, botDid: string) {
   const out: { rkey: string; record: any; userCount: number; name: string; emoji: string }[] = [];
   for (const r of m.reactions ?? []) {
     if (!r?.name) continue;
@@ -412,6 +412,9 @@ function reactionsFor(m: any, targetMessageRkey: string) {
       record: {
         $type: "social.colibri.reaction",
         emoji,
+        // `parent` (at-uri) is what Colibri's lexicon requires; `targetMessage` is
+        // the pre-lexicon field kept for existing readers. Same as the worker.
+        parent: `at://${botDid}/social.colibri.message/${targetMessageRkey}`,
         targetMessage: targetMessageRkey,
       },
     });
@@ -543,7 +546,7 @@ if (allWithReactions.length > 0) {
   console.log("");
   console.log("REACTIONS:");
   for (const { m, targetRkey } of allWithReactions) {
-    for (const r of reactionsFor(m, targetRkey)) {
+    for (const r of reactionsFor(m, targetRkey, did)) {
       console.log(
         `  ${m.ts}  target=${targetRkey}  rkey=${r.rkey}  ${r.emoji} (:${r.name}: ×${r.userCount})`,
       );
@@ -678,7 +681,7 @@ console.error("");
 console.error("reactions…");
 let okX = 0, failX = 0;
 for (const { m, targetRkey } of allWithReactions) {
-  for (const r of reactionsFor(m, targetRkey)) {
+  for (const r of reactionsFor(m, targetRkey, did)) {
     try {
       await put("social.colibri.reaction", r.rkey, r.record);
       okX++;

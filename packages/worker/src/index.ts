@@ -661,6 +661,10 @@ async function publishReaction(
   await putRecord(sess, "social.colibri.reaction", rkey, {
     $type: "social.colibri.reaction",
     emoji: emojiForName(ev.reaction),
+    // Colibri's lexicon (main, 2026-09-07) requires `parent` as an at-uri; the
+    // appview does not render records without it. `targetMessage` (bare rkey)
+    // is our pre-lexicon field, kept for readers of the bot repo (foc-viewer).
+    parent: `at://${sess.did}/social.colibri.message/${targetRkey}`,
     targetMessage: targetRkey,
   });
   return `published reaction rkey=${rkey} :${ev.reaction}: -> ${targetRkey}`;
