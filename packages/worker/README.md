@@ -1,8 +1,9 @@
 # @slack-sync/worker
 
-Cloudflare Worker for the real-time forward bridge. Slack Events API webhook -> CF Queue -> atproto.
+The real-time bridge, both directions, in one Cloudflare Worker.
 
-Forward half live since 2026-05-31; reverse half (Colibri -> Slack) landed 2026-09-07, fed by a Jetstream tail Durable Object.
+- Slack -> Colibri, live since 2026-05-31: Slack Events API webhook -> `slack-events` queue -> atproto.
+- Colibri -> Slack, live since 2026-09-07: Jetstream tail Durable Object -> `atproto-events` queue -> Slack Web API.
 
 ## Bring up
 
@@ -38,7 +39,7 @@ After deploy, set the Slack app's **Event Subscriptions -> Request URL** to `htt
 | Path | Role |
 |---|---|
 | `POST /slack/events` | Verify HMAC, enqueue payload, ack <3s. |
-| Queue consumer | Capture as `slackRaw`, derive `social.colibri.message`, link via `slackOrigin`, project reactions, upload file blobs. |
+| Queue consumer `slack-events` | Forward half (`src/index.ts`): capture as `slackRaw`, derive `social.colibri.message`, link via `slackOrigin`, project reactions, upload file blobs. |
 | Block structure | Slack's `rich_text_list`, `rich_text_quote` and `rich_text_preformatted` become `facet#list` (one per item line), `facet#quote` and `facet#codeblock` over clean text — Colibri's client draws the bullet, the blockquote rule and the code frame. `mrkdwn.ts` inverts them back to `• `, `> ` and ``` fences, which is what Slack uses. Read the lexicon from the network, not `vendor/colibri-social`: `_lexicon.colibri.social` TXT -> `did:plc:mprdjqjluoswa7awzggaggj3`. |
 | `GET /health` | Liveness check for monitoring. |
 | `POST /slack/replay` | Re-derive archived messages after a derivation fix: bearer `INJECT_TOKEN`, body = one `event_callback` envelope from `slackRaw` or an array, enqueued to `slack-events`. rkeys are `tidFromSlackTs(ts)`, so records are overwritten in place. `bun scripts/replay.ts --has-list [--dry-run]` picks the envelopes (newest per message, deletes excluded). |
@@ -73,4 +74,6 @@ both were dropped silently for months because an unhandled element type falls
 out of the `switch` without an error. The corpus test exists so a block type
 nobody thought of still has to survive the walk.
 
-See the design proposal (PR #20) for HMAC verification details, the dedupe model (deterministic rkeys -> putRecord upsert), and the read-modify-write pattern for category `channelOrder` updates.
+See <https://wiki.feelingof.com/slack-colibri-bridge/> for HMAC verification details, the dedupe
+model (deterministic rkeys -> putRecord upsert), the reverse path's sequence diagram, and the known
+gaps.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Reference implementation of the Slack→Colibri bridge backfill.
-// See pages/slack-colibri-bridge.md for the design proposal this script realises.
+// Design: https://wiki.feelingof.com/slack-colibri-bridge/
 //
 // Reads a day's worth of Slack history JSON (Mariano's dump-history.js output)
 // and publishes each message as a `social.colibri.message` record on a bot's

@@ -109,7 +109,9 @@ It reads from disk, all paths CWD-relative:
 | `tools/slack-to-did.json` | Slack user id -> claimed atproto DID (gitignored, optional) |
 | `tools/slack-to-colibri-channel.json` | Slack channel id -> Colibri channel rkey (gitignored) |
 
-The two `tools/` JSONs are workspace-specific. See PR #20 for the format.
+The two `tools/` JSONs are workspace-specific; `packages/shared/src/channels.ts` and
+`slack-to-did.ts` are the worker's copies of the same two maps and must agree with them. See the
+[wiki page's Maintenance section](https://wiki.feelingof.com/slack-colibri-bridge/) for the format.
 
 ## Usage
 
@@ -129,7 +131,9 @@ When some channels need lazy-creation (not in `slack-to-colibri-channel.json`), 
 
 ## Design
 
-See [the proposal](https://github.com/feelingofcomputing/wiki/pull/20) for: write order (slackRaw -> message -> slackOrigin), authorship constraints, channel-ownership constraint, lossless archival via `com.feelingofcomputing.bridge.slackRaw`, and the full upstream-asks list.
+See <https://wiki.feelingof.com/slack-colibri-bridge/> for: write order (slackRaw -> message ->
+slackOrigin), authorship constraints, the channel-ownership constraint, lossless archival via
+`com.feelingofcomputing.bridge.slackRaw`, and the known gaps.
 
 ## Implementation note
 
