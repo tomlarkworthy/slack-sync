@@ -63,7 +63,21 @@ export function words(s: string): string[] {
  */
 export function lostWords(blocks: unknown[], reference: string): string[] {
   const { text, facets } = derive(blocks);
-  const uris = facets.flatMap((f: any) => f.features.map((x: any) => x.uri ?? ""));
+  return lostFrom(text, facets, reference);
+}
+
+/**
+ * The same question asked of an already-published record rather than a fresh
+ * derivation: which of Slack's words does this Colibri message not carry?
+ * Non-empty means the record was derived by a walker that has since been
+ * fixed — scripts/replay.ts --stale uses this to find what needs re-deriving.
+ */
+export function lostFrom(
+  text: string,
+  facets: Array<{ features: Array<{ uri?: string }> }> | undefined,
+  reference: string,
+): string[] {
+  const uris = (facets ?? []).flatMap((f) => f.features.map((x) => x.uri ?? ""));
   const have = new Set(words([text, ...uris].join(" ")));
   return words(reference).filter((w) => !have.has(w));
 }

@@ -62,6 +62,7 @@ plaintext of the same message — so the archive in
 | `bun scripts/roundtrip.ts [--detail]` | blocks -> walker -> renderer -> mrkdwn equals the mrkdwn Slack sent. 898 of 916 distinct messages (98%) exact; divergences are grouped by class. |
 | `bun test test/corpus.test.ts` | The same two checks offline, over `test/fixtures/slack-corpus.json` — one real message per distinct combination of element types. Known reverse-leg gaps are listed by ts with a reason. |
 | `bun scripts/build-fixture.ts` | Rebuilds that fixture from the live archive. Run it after a new element type appears. |
+| `bun scripts/replay.ts --stale --dry-run` | Which published records a fixed walker would improve: the record drops words of Slack's plaintext that a fresh derivation keeps. Drop `--dry-run` (with `INJECT_TOKEN`) to re-derive them through `/slack/replay`. |
 
 Hand-written cases are what let `rich_text_list` and `message_mention` through:
 both were dropped silently for months because an unhandled element type falls

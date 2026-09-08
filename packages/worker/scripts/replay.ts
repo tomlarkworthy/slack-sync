@@ -3,12 +3,19 @@
 // envelope per (channel, ts) — so an edited message replays as its final text,
 // not its first — and POSTs them to /slack/replay.
 //
-//   INJECT_TOKEN=… bun scripts/replay.ts --has-list --dry-run
-//   INJECT_TOKEN=… bun scripts/replay.ts --has-list
+//   INJECT_TOKEN=… bun scripts/replay.ts --stale --dry-run
+//   INJECT_TOKEN=… bun scripts/replay.ts --stale
 //   INJECT_TOKEN=… bun scripts/replay.ts --ts 1788810788.677819
 //
-// --has-list selects messages whose blocks contain a rich_text_list (the
-// 2026-09-07 walker fix). WORKER_URL defaults to the deployed worker.
+// --stale asks the question directly rather than naming a bug: for every
+// archived message, does the published Colibri record still carry every word
+// of Slack's own plaintext? A record derived by a walker that has since been
+// fixed does not, and gets re-derived. --has-list is the older, narrower
+// selector (blocks containing a rich_text_list).
+// WORKER_URL defaults to the deployed worker.
+
+import { lostFrom, lostWords } from "../test/support/compare";
+import { tidFromSlackTs } from "../src/atproto";
 
 const WORKER_URL = process.env.WORKER_URL ?? "https://slack-sync-bridge.endpointservices.workers.dev";
 const BOT_DID = "did:plc:4gcxakknd6hxtnhf33miwsob";
@@ -16,12 +23,14 @@ const PDS = "https://jellybaby.us-east.host.bsky.network";
 const COLLECTION = "com.feelingofcomputing.bridge.slackRaw";
 const BATCH = 20;
 
+
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
 const hasListFilter = args.includes("--has-list");
+const staleFilter = args.includes("--stale");
 const tsFilter = new Set(args.flatMap((a, i) => (args[i - 1] === "--ts" ? [a] : [])));
-if (!hasListFilter && tsFilter.size === 0) {
-  throw new Error("usage: replay.ts (--has-list | --ts <slack ts>…) [--dry-run]");
+if (!hasListFilter && !staleFilter && tsFilter.size === 0) {
+  throw new Error("usage: replay.ts (--stale | --has-list | --ts <slack ts>…) [--dry-run]");
 }
 const token = process.env.INJECT_TOKEN;
 if (!token && !dryRun) throw new Error("INJECT_TOKEN not set");
@@ -53,6 +62,36 @@ async function* slackRaw(): AsyncGenerator<Raw> {
 const containsList = (els: any[] | undefined): boolean =>
   (els ?? []).some((e) => e?.type === "rich_text_list" || containsList(e?.elements));
 
+// Published Colibri messages, by rkey, for --stale.
+const published = new Map<string, { text: string; facets: any[] }>();
+if (staleFilter) {
+  let cursor: string | undefined;
+  do {
+    const u = new URL(`${PDS}/xrpc/com.atproto.repo.listRecords`);
+    u.searchParams.set("repo", BOT_DID);
+    u.searchParams.set("collection", "social.colibri.message");
+    u.searchParams.set("limit", "100");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    const j = (await (await fetch(u)).json()) as any;
+    for (const r of j.records) published.set(r.uri.split("/").pop(), r.value);
+    cursor = j.records.length ? j.cursor : undefined;
+  } while (cursor);
+  console.log(`read ${published.size} published messages`);
+}
+
+// Stale = the published record drops words of Slack's plaintext that a fresh
+// derivation would keep. The second half matters: a record truncated at the
+// 2048-char cap, or one where Slack autolinked a bare domain its own block
+// tree carries as plain text, loses words no replay can restore — re-POSTing
+// those forever would be churn.
+function isStale(inner: any): boolean {
+  const rec = published.get(tidFromSlackTs(inner.ts));
+  if (!rec) return false; // never published (unmapped channel, skipped subtype)
+  const now = lostFrom(rec.text ?? "", rec.facets, inner.text ?? "").length;
+  if (now === 0) return false;
+  return lostWords(inner.blocks, inner.text ?? "").length < now;
+}
+
 // Newest envelope per message, plus the messages deleted afterwards. The key
 // is the *target* ts: a message_changed envelope carries the edit's own ts in
 // event.ts and the message's in event.message.ts, and the derivation writes
@@ -74,7 +113,11 @@ for await (const v of slackRaw()) {
   if (!PUBLISHABLE.has(ev.subtype)) continue;
   const inner = ev.message ?? ev;
   const key = `${v.slackChannelId}/${inner.ts}`;
-  const match = tsFilter.size ? tsFilter.has(inner.ts ?? "") : containsList(inner.blocks);
+  const match = tsFilter.size
+    ? tsFilter.has(inner.ts ?? "")
+    : staleFilter
+      ? Array.isArray(inner.blocks) && typeof inner.text === "string" && isStale(inner)
+      : containsList(inner.blocks);
   if (!match) continue;
   const prev = newest.get(key);
   if (!prev || (v.capturedAt ?? "") > (prev.capturedAt ?? "")) newest.set(key, v);
