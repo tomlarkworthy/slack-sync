@@ -40,8 +40,10 @@ import {
 import { logEvent } from "./eventlog";
 import { emojiForName } from "@slack-sync/shared";
 import {
+  BOT_DID,
   deleteRecord,
   getBskySession,
+  getRecord,
   hash10,
   PDS,
   putRecord,
@@ -631,6 +633,58 @@ export default {
       return new Response(JSON.stringify({ enqueued: envelopes.length }), {
         headers: { "Content-Type": "application/json" },
       });
+    }
+
+    // Repair records the backfill CLI published, using the worker's session.
+    // The backfill's own records predate the block facets and have no archived
+    // Slack envelope, so /slack/replay cannot reach them, and the CLI needs the
+    // bot's app password — which only exists here, as a Worker secret. So the
+    // CLI derives (scripts/repair-days.sh --emit) and posts the records here.
+    //
+    // Update-only: a record whose rkey is not already published is refused, so
+    // this cannot add content to the archive under cover of a repair. It writes
+    // to the bot's own repo, which reverse.ts skips (`ev.did === BOT_DID`), so
+    // nothing mirrors back into Slack.
+    if (request.method === "POST" && url.pathname === "/repair/messages") {
+      if (!env.INJECT_TOKEN || request.headers.get("Authorization") !== `Bearer ${env.INJECT_TOKEN}`) {
+        return new Response("unauthorized", { status: 401 });
+      }
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return new Response("invalid json", { status: 400 });
+      }
+      const items = (Array.isArray(body) ? body : [body]) as Array<{ rkey?: string; record?: Record<string, unknown> }>;
+      if (items.length > 50) return new Response("at most 50 records per request", { status: 400 });
+      if (!items.every((i) => /^[2-7a-z]{13}$/.test(i?.rkey ?? "") && i?.record && typeof i.record === "object")) {
+        return new Response("expected [{rkey, record}] with 13-char tid rkeys", { status: 400 });
+      }
+      // Canonical key order: the PDS returns CBOR-decoded maps sorted, which is
+      // not the order the walker builds them in. Compare by value or every
+      // record looks changed and the repair rewrites the whole day.
+      const stable = (v: unknown): unknown =>
+        Array.isArray(v)
+          ? v.map(stable)
+          : v && typeof v === "object"
+            ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, stable((v as Record<string, unknown>)[k])]))
+            : v;
+      const sess = await getBskySession(env);
+      const result = { written: [] as string[], unchanged: [] as string[], absent: [] as string[] };
+      for (const { rkey, record } of items) {
+        const cur = await getRecord<Record<string, unknown>>(BOT_DID, "social.colibri.message", rkey!);
+        if (!cur) {
+          result.absent.push(rkey!);
+          continue;
+        }
+        if (JSON.stringify(stable(cur.value)) === JSON.stringify(stable(record))) {
+          result.unchanged.push(rkey!);
+          continue;
+        }
+        await putRecord(sess, "social.colibri.message", rkey!, record);
+        result.written.push(rkey!);
+      }
+      return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
     }
 
     // Jetstream tail control, same bearer as /atproto/inject.

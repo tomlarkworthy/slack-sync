@@ -24,7 +24,7 @@
 // Dry-run by default. Pass --live to publish.
 // --live always needs BSKY_HANDLE + BSKY_APP_PASSWORD.
 
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import {
   BOT_DID,
   channelFacetUri,
@@ -61,6 +61,7 @@ const { values } = parseArgs({
     limit: { type: "string", default: "1000" },
     live: { type: "boolean", default: false },
     "diff-published": { type: "boolean", default: false },
+    emit: { type: "string" },
     "delay-ms": { type: "string", default: "200" },
   },
 });
@@ -74,7 +75,8 @@ const srcDay = values["src-day"]!;
 const srcDir = values["src-dir"]!;
 const limit = parseInt(values.limit!, 10);
 const dryRun = !values.live;
-const diffPublished = values["diff-published"]!;
+const emitPath = values.emit;
+const diffPublished = values["diff-published"]! || !!emitPath;
 const delayMs = parseInt(values["delay-ms"]!, 10);
 
 // ── reference data ──────────────────────────────────────────────────────────
@@ -414,6 +416,7 @@ if (diffPublished) {
   ].map((b) => ({ rkey: b.rkey, rec: b.record }));
   let same = 0;
   const changed: string[] = [];
+  const toEmit: { rkey: string; record: any }[] = [];
   for (const { rkey, rec } of built) {
     const u = new URL(`${APPVIEW_PDS}/xrpc/com.atproto.repo.getRecord`);
     u.searchParams.set("repo", BOT_DID);
@@ -434,6 +437,7 @@ if (diffPublished) {
       same++;
       continue;
     }
+    toEmit.push({ rkey, record: rec });
     changed.push(
       `  ${rkey}  ${dText ? "text" : "    "} ${dShape ? "facets" : "      "}\n` +
         (dText ? `    - ${JSON.stringify(cur.text?.slice(0, 160))}\n    + ${JSON.stringify(rec.text?.slice(0, 160))}\n` : "") +
@@ -447,6 +451,12 @@ if (diffPublished) {
   console.log("");
   console.log(`DIFF vs PUBLISHED: ${changed.length} would change, ${same} unchanged, of ${built.length}`);
   for (const line of changed) console.log(line);
+  // --emit appends the changed records as JSONL for scripts/post-repair.ts,
+  // which publishes them through the worker's /repair/messages. The bot's app
+  // password lives only as a Worker secret, so the CLI derives and the worker
+  // writes.
+  if (emitPath && toEmit.length)
+    appendFileSync(emitPath, toEmit.map((e) => JSON.stringify(e)).join("\n") + "\n");
 }
 
 if (dryRun) {

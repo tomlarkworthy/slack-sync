@@ -35,9 +35,17 @@ form makes every record look changed.
 `scripts/repair-days.sh` re-derives the days the first backfill covered:
 
 ```sh
-sh vendor/slack-sync/packages/backfill/scripts/repair-days.sh              # preview
-BSKY_HANDLE=… BSKY_APP_PASSWORD=… sh …/repair-days.sh --live               # write
+sh vendor/slack-sync/packages/backfill/scripts/repair-days.sh                    # preview
+sh …/repair-days.sh --emit /tmp/repair.jsonl                                     # derive
+INJECT_TOKEN=… bun packages/backfill/scripts/post-repair.ts /tmp/repair.jsonl    # write
 ```
+
+`--live` writes directly and needs `BSKY_HANDLE` + `BSKY_APP_PASSWORD`. The bot's
+app password lives only as a Cloudflare Worker secret, so the second form is the
+one that works without it: the CLI derives, `--emit` writes the changed records
+as JSONL, and the worker publishes them through `POST /repair/messages` using its
+own session. That endpoint is update-only — an rkey that is not already published
+is refused — so a repair cannot add content.
 
 The day list is the days that already have published records
 (`scripts/coverage.ts` derives it, by finding the published messages with no
@@ -45,10 +53,11 @@ archived Slack envelope). `2026/05/01`, `05/03` and `05/04` have dumps but were
 never backfilled — running them would add 31 new messages rather than repair
 anything, so they are not in the list.
 
-As of 2026-09-08 the preview reports **28 of 299 records would change** across
-10 of the 25 days: lists and quotes that were published as literal `• ` and
-`> ` text before the block facets landed, a `#channel` facet published as a bare
-rkey, and links Slack autolinked that the old walker dropped from the text.
+Run 2026-09-08: **28 of 269 records changed** across 10 of the 25 days — lists
+and quotes published as literal `• ` and `> ` text before the block facets
+landed, a `#channel` facet published as a bare rkey, and links Slack autolinked
+that the old walker dropped from the text. 27 written, 1 already correct by the
+time the batch ran (the canary). The sweep now reports 0 of 269 changed.
 
 ## Inputs
 
