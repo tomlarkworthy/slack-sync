@@ -67,3 +67,19 @@ describe("renderFacets", () => {
     expect(escapeMrkdwn("<@U1> & <#C1>")).toBe("&lt;@U1&gt; &amp; &lt;#C1&gt;");
   });
 });
+
+describe("channel facets", () => {
+  const withChannel = {
+    ...opts,
+    slackChannelForRkey: (rkey: string) => (rkey === "3mn5tk5v4yr2s" ? "C03RR0W5DGC" : undefined),
+  };
+  test("a channel facet becomes <#C…>; an unmapped rkey stays text", () => {
+    const t = "see #devlog-together and #elsewhere";
+    const f = (from: string, rkey: string) => ({
+      index: { byteStart: t.indexOf(from), byteEnd: t.indexOf(from) + from.length },
+      features: [{ $type: `${F}#channel`, channel: rkey }],
+    });
+    expect(renderFacets(t, [f("#devlog-together", "3mn5tk5v4yr2s"), f("#elsewhere", "nope")], withChannel))
+      .toBe("see <#C03RR0W5DGC> and #elsewhere");
+  });
+});

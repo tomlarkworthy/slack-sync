@@ -27,7 +27,7 @@
 // Channel map lives in channels.ts — channel additions require a redeploy.
 
 import { didForSlackUser } from "./slack-to-did";
-import { CHANNEL_MAP } from "./channels";
+import { CHANNEL_MAP, channelForSlackId } from "./channels";
 import { logEvent } from "./eventlog";
 import { emojiForName } from "./emoji";
 import {
@@ -351,9 +351,24 @@ function walkSectionItem(
         }
       }
       break;
-    case "channel":
-      if (item.channel_id) b.emit(`#${item.channel_id}`);
+    case "channel": {
+      // The lexicon has facet#channel, keyed by the Colibri channel rkey, and
+      // channels.ts already carries both that and the name — emitting the raw
+      // Slack id as plain text left a Colibri reader with an opaque `#C…` and
+      // gave the reverse leg nothing to rebuild `<#C…>` from. backfill has
+      // done this since it was written.
+      if (!item.channel_id) break;
+      const ch = channelForSlackId(item.channel_id);
+      if (ch) {
+        b.emit(`#${ch.name}`, {
+          $type: "social.colibri.richtext.facet#channel",
+          channel: ch.oldRkey,
+        });
+      } else {
+        b.emit(`#${item.channel_id}`);
+      }
       break;
+    }
     case "emoji": {
       let unicode = "";
       if (item.unicode) {

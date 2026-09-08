@@ -6,12 +6,14 @@
 
 export interface ColibriFacet {
   index: { byteStart: number; byteEnd: number };
-  features: Array<{ $type: string; uri?: string; did?: string; ordered?: boolean }>;
+  features: Array<{ $type: string; uri?: string; did?: string; channel?: string; ordered?: boolean }>;
 }
 
 export interface RenderOpts {
   // atproto DID -> Slack user id, for `facet#mention` -> `<@U…>`.
   slackUserForDid: (did: string) => string | undefined;
+  // Colibri channel rkey -> Slack channel id, for `facet#channel` -> `<#C…>`.
+  slackChannelForRkey?: (rkey: string) => string | undefined;
 }
 
 export function escapeMrkdwn(s: string): string {
@@ -49,7 +51,12 @@ function renderSpan(raw: string, f: ColibriFacet, opts: RenderOpts): string {
   const kinds = new Set(f.features.map((x) => featureKind(x.$type)));
   const link = f.features.find((x) => featureKind(x.$type) === "link" && x.uri);
   const mention = f.features.find((x) => featureKind(x.$type) === "mention" && x.did);
+  const channel = f.features.find((x) => featureKind(x.$type) === "channel" && x.channel);
 
+  if (channel) {
+    const c = opts.slackChannelForRkey?.(channel.channel!);
+    return c ? `<#${c}>` : escapeMrkdwn(raw);
+  }
   if (mention) {
     const u = opts.slackUserForDid(mention.did!);
     return u ? `<@${u}>` : escapeMrkdwn(raw);

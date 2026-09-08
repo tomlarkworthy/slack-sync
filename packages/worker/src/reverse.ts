@@ -195,7 +195,12 @@ const byline = (author: Author, text: string) => `@${escapeMrkdwn(author.name)}:
 
 async function renderMessage(did: string, rec: ColibriMessage): Promise<string> {
   const parts: string[] = [];
-  parts.push(renderFacets(rec.text ?? "", rec.facets, { slackUserForDid }));
+  parts.push(
+    renderFacets(rec.text ?? "", rec.facets, {
+      slackUserForDid,
+      slackChannelForRkey: (rkey) => channelForRef(rkey)?.slack,
+    }),
+  );
   if (Array.isArray(rec.attachments) && rec.attachments.length > 0) {
     const pds = (await resolveDid(did)).pds;
     for (const a of rec.attachments) {

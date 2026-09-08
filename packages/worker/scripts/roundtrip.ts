@@ -8,6 +8,7 @@
 import { canonMrkdwn, derive } from "../test/support/compare";
 import { renderFacets } from "../src/mrkdwn";
 import { SLACK_USER_DID_MAP } from "../src/slack-to-did";
+import { channelForRef } from "../src/channels";
 
 const PDS = "https://jellybaby.us-east.host.bsky.network";
 const BOT_DID = "did:plc:4gcxakknd6hxtnhf33miwsob";
@@ -41,6 +42,7 @@ for await (const v of raw()) {
   const { text, facets } = derive(inner.blocks, (id: string) => id);
   const back = renderFacets(text, facets, {
     slackUserForDid: (did) => DID_TO_SLACK[did],
+    slackChannelForRkey: (rkey) => channelForRef(rkey)?.slack,
   });
   // Our mention renders as "@U…" text unless the user is in the DID map; Slack
   // spells every mention <@U…>. Normalise ours up to Slack's spelling.
