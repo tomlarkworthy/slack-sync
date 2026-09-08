@@ -25,7 +25,7 @@
 //   BSKY_HANDLE=… BSKY_APP_PASSWORD=… bun packages/backfill/src/events.ts --live
 
 import { parseArgs } from "node:util";
-import { BOT_DID, channelForRef, COMMUNITY_DID, tidFromMicros } from "@slack-sync/shared";
+import { BOT_DID, bridgeChannelRkey, channelForRef, COMMUNITY_DID, tidFromMicros } from "@slack-sync/shared";
 import { buildEvent, EVENT_COLLECTION, type BridgeEvent } from "../../worker/src/eventlog";
 
 const PDS = "https://bsky.social";
@@ -117,7 +117,7 @@ const didOf = (uri: string) => uri.slice(5).split("/")[0]!;
 
 // A message's channel in either spelling -> the bare rkey the bridge writes.
 const channelRkey = (ref: unknown): string | undefined =>
-  typeof ref === "string" ? channelForRef(ref)?.oldRkey : undefined;
+  typeof ref === "string" ? (() => { const c = channelForRef(ref); return c ? bridgeChannelRkey(c) : undefined; })() : undefined;
 
 // A reaction names its target as an at-uri (`parent`) or a bare rkey on the bot
 // repo (`targetMessage`, pre-2026-09-07).

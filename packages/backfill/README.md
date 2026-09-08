@@ -57,11 +57,15 @@ existing records cannot add any.
 `--skip-unmapped-channels` drops messages in Slack channels that have no entry
 in `slack-to-colibri-channel.json`. Lazy-create would write the channel into the
 *bot's* repo while the facet at-uri points at the community's own DID, so the
-chip renders unresolved — the defect the 2026-09-08 repair fixed. Two channels
-are in this state: **#of-logic-programming** and **#reading-together** (8
-messages in 2026/04). Publishing them needs the community owner to create the
-channels in Colibri and add them to `slack-to-colibri-channel.json` and
-`packages/shared/src/channels.ts`.
+chip renders unresolved — the defect the 2026-09-08 repair fixed. Adding a
+channel means creating it in Colibri, then adding it to
+`slack-to-colibri-channel.json` and `packages/shared/src/channels.ts`, and
+re-running the days it appears in.
+
+A channel created after the 2026-08-12 community migration has only the new
+rkey and no `migratedFrom` to resolve an old one through, so `oldRkey` is
+absent and `bridgeChannelRkey()` writes the new one. #of-logic-programming and
+#reading-together are the first two of these.
 
 ## Repairing already-backfilled records
 
@@ -86,7 +90,10 @@ Run 2026-09-08:
 | 1 message record | missing `$type` |
 
 Then 2026/04/05–2026/05/04 was backfilled: 272 messages and 113 reactions,
-381 created, 4 updated. Both ranges now report 0 changed.
+381 created, 4 updated. #of-logic-programming and #reading-together were created
+in Colibri afterwards, and re-running the range added their 8 messages and 7
+reactions, plus one message whose `<#…>` mention now resolves to a facet. Both
+ranges report 0 changed; the archive is 1467 messages.
 
 ## Inputs
 

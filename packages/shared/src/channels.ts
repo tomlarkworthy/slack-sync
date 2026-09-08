@@ -1,10 +1,14 @@
 // Slack channel <-> Colibri channel, both directions.
 //
 // The FoC community was created on the owner's DID on 2026-05-31 and migrated
-// to its own identity on 2026-08-12. Every channel therefore has two rkeys:
+// to its own identity on 2026-08-12. A channel that existed then has two rkeys:
 // the bridge still writes the pre-migration one (bare, which Colibri resolves
 // through `migratedFrom`); the Colibri client writes the migrated one as an
 // at-uri. The reverse map accepts all three spellings.
+//
+// A channel created after the migration has only the new rkey and no
+// `migratedFrom` to resolve an old one through, so the bridge writes that.
+// `bridgeChannelRkey` is the one to use for a record's `channel` field.
 //
 // Mirror of tools/slack-to-colibri-channel.json on the backfill side.
 
@@ -14,7 +18,7 @@ export const COMMUNITY_DID = "did:plc:dl3d3fftr4tk3yf3xqxouus7";
 export interface Channel {
   slack: string;
   name: string;
-  oldRkey: string; // on OLD_OWNER_DID, community 3mn5nudqvhs2x
+  oldRkey?: string; // on OLD_OWNER_DID, community 3mn5nudqvhs2x; absent post-migration
   newRkey: string; // on COMMUNITY_DID, community `self`
 }
 
@@ -30,19 +34,27 @@ export const CHANNELS: Channel[] = [
   { slack: "CC2JRGVLK",   name: "introduce-yourself", oldRkey: "3mn5tkvfo2j2s", newRkey: "3msvih7djjfxt" },
   { slack: "C0120A3L30R", name: "two-minute-week",    oldRkey: "3mn5tn53kwy2w", newRkey: "3msvih7djjha6" },
   { slack: "C0B7BGKT8MP", name: "test-01",            oldRkey: "3mn5tckh3ij24", newRkey: "3msvih7djjklu" },
+  // Created 2026-09-08, after the migration: new rkey only.
+  { slack: "C01AFFQP8A3", name: "of-logic-programming",                          newRkey: "3muzsfnmggika" },
+  { slack: "C037X8XMFB3", name: "reading-together",                              newRkey: "3muzsg6sm6gvv" },
 ];
+
+// The rkey the bridge writes into a record's `channel` field.
+export const bridgeChannelRkey = (c: Channel): string => c.oldRkey ?? c.newRkey;
 
 // Forward direction: Slack channel id -> the rkey the bridge writes.
 export const CHANNEL_MAP: Record<string, string> = Object.fromEntries(
-  CHANNELS.map((c) => [c.slack, c.oldRkey]),
+  CHANNELS.map((c) => [c.slack, bridgeChannelRkey(c)]),
 );
 
 const BY_REF = new Map<string, Channel>();
 for (const c of CHANNELS) {
-  BY_REF.set(c.oldRkey, c);
   BY_REF.set(c.newRkey, c);
-  BY_REF.set(`at://${OLD_OWNER_DID}/social.colibri.channel/${c.oldRkey}`, c);
   BY_REF.set(`at://${COMMUNITY_DID}/social.colibri.channel/${c.newRkey}`, c);
+  if (c.oldRkey) {
+    BY_REF.set(c.oldRkey, c);
+    BY_REF.set(`at://${OLD_OWNER_DID}/social.colibri.channel/${c.oldRkey}`, c);
+  }
 }
 
 // Reverse direction: a `channel` field in any spelling -> the channel, or

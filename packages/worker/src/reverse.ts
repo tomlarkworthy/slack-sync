@@ -24,7 +24,13 @@ import {
   slackTsFromTid,
   type AtprotoEnv,
 } from "./atproto";
-import { channelForRef, channelForSlackId } from "@slack-sync/shared";
+import { bridgeChannelRkey, channelForRef, channelForSlackId } from "@slack-sync/shared";
+
+// The rkey a mirrored record's `channel` field carries, from a Slack channel id.
+const chanRkey = (slackId: string | undefined): string | undefined => {
+  const c = slackId ? channelForSlackId(slackId) : undefined;
+  return c ? bridgeChannelRkey(c) : undefined;
+};
 import { emojiNameFor } from "@slack-sync/shared";
 import { logEvent } from "./eventlog";
 import { renderFacets, escapeMrkdwn, type ColibriFacet } from "./mrkdwn";
@@ -249,7 +255,7 @@ async function mirrorMessage(ev: JetstreamCommit, env: ReverseEnv): Promise<stri
     op: ev.commit.operation === "update" ? "update" : "create",
     subject: source,
     cid: ev.commit.cid,
-    channel: ch.oldRkey,
+    channel: bridgeChannelRkey(ch),
     via: "colibri",
   });
   const author = await resolveAuthor(ev.did);
@@ -313,7 +319,7 @@ async function unmirrorMessage(ev: JetstreamCommit, env: ReverseEnv): Promise<st
   const note = await logEvent(sess, {
     op: "delete",
     subject: m.value.source,
-    channel: channelForSlackId(m.value.slackChannelId)?.oldRkey,
+    channel: chanRkey(m.value.slackChannelId),
     via: "colibri",
   });
   await slack(env, "chat.delete", { channel: m.value.slackChannelId, ts: m.value.slackTs }, [
@@ -343,7 +349,7 @@ async function mirrorReaction(ev: JetstreamCommit, env: ReverseEnv): Promise<str
     op: ev.commit.operation === "update" ? "update" : "create",
     subject: `at://${ev.did}/social.colibri.reaction/${rkey}`,
     cid: ev.commit.cid,
-    channel: channelForSlackId(coords.channel)?.oldRkey,
+    channel: chanRkey(coords.channel),
     via: "colibri",
   });
   await slack(env, "reactions.add", { channel: coords.channel, timestamp: coords.ts, name }, [
@@ -369,7 +375,7 @@ async function unmirrorReaction(ev: JetstreamCommit, env: ReverseEnv): Promise<s
   const note = await logEvent(sess, {
     op: "delete",
     subject: m.value.source,
-    channel: channelForSlackId(m.value.slackChannelId)?.oldRkey,
+    channel: chanRkey(m.value.slackChannelId),
     via: "colibri",
   });
   await slack(
