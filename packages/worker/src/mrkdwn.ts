@@ -28,23 +28,70 @@ function featureKind(t: string): string {
   return i >= 0 ? t.slice(i + 1) : t;
 }
 
+const BLOCK_KINDS = new Set(["quote", "list", "codeblock"]);
+const blockFeatureOf = (f: ColibriFacet) =>
+  f.features.find((x) => BLOCK_KINDS.has(featureKind(x.$type)));
+
 export function renderFacets(text: string, facets: ColibriFacet[] | undefined, opts: RenderOpts): string {
   const bytes = enc.encode(text);
-  const sorted = (facets ?? [])
-    .filter((f) => f?.index && f.index.byteEnd > f.index.byteStart && f.index.byteStart >= 0)
-    .sort((a, b) => a.index.byteStart - b.index.byteStart);
-  const out: string[] = [];
-  let pos = 0;
-  for (const f of sorted) {
-    const start = Math.min(f.index.byteStart, bytes.length);
-    const end = Math.min(f.index.byteEnd, bytes.length);
-    if (start < pos) continue; // overlapping facet: first one wins
-    if (start > pos) out.push(escapeMrkdwn(dec.decode(bytes.subarray(pos, start))));
-    out.push(renderSpan(dec.decode(bytes.subarray(start, end)), f, opts));
-    pos = end;
-  }
-  if (pos < bytes.length) out.push(escapeMrkdwn(dec.decode(bytes.subarray(pos))));
-  return out.join("");
+  const valid = (facets ?? []).filter(
+    (f) => f?.index && f.index.byteEnd > f.index.byteStart && f.index.byteStart >= 0,
+  );
+  // Block facets (quote, list, codeblock) span the inline ones inside them, so
+  // they cannot go through the same first-one-wins pass — a link inside a
+  // quote would be swallowed. Segment on blocks, render inline within.
+  const blocks = valid.filter(blockFeatureOf).sort((a, b) => a.index.byteStart - b.index.byteStart);
+  const inline = valid.filter((f) => !blockFeatureOf(f)).sort((a, b) => a.index.byteStart - b.index.byteStart);
+
+  const renderInline = (from: number, to: number): string => {
+    const out: string[] = [];
+    let pos = from;
+    for (const f of inline) {
+      const start = Math.min(f.index.byteStart, bytes.length);
+      const end = Math.min(f.index.byteEnd, bytes.length);
+      if (start < pos || start >= to) continue;
+      if (end > to) continue;
+      if (start > pos) out.push(escapeMrkdwn(dec.decode(bytes.subarray(pos, start))));
+      out.push(renderSpan(dec.decode(bytes.subarray(start, end)), f, opts));
+      pos = end;
+    }
+    if (pos < to) out.push(escapeMrkdwn(dec.decode(bytes.subarray(pos, to))));
+    return out.join("");
+  };
+
+  const renderRange = (from: number, to: number, within: ColibriFacet[]): string => {
+    const out: string[] = [];
+    let pos = from;
+    let ordinal = 0;
+    for (let i = 0; i < within.length; i++) {
+      const f = within[i]!;
+      const start = Math.max(f.index.byteStart, pos);
+      const end = Math.min(f.index.byteEnd, to);
+      if (end <= start) continue;
+      if (start > pos) out.push(renderInline(pos, start));
+      const feature = blockFeatureOf(f)!;
+      const kind = featureKind(feature.$type);
+      if (kind === "quote") {
+        // Slack's own blockquote marker; not entity-escaped, or Slack shows a
+        // literal ">" instead of quoting.
+        const nested = within.slice(i + 1).filter((x) => x.index.byteEnd <= end);
+        const inner = renderRange(start, end, nested);
+        out.push(inner.split("\n").map((l) => `> ${l}`).join("\n"));
+        i += nested.length;
+      } else if (kind === "codeblock") {
+        out.push("```" + escapeMrkdwn(dec.decode(bytes.subarray(start, end))) + "```");
+      } else {
+        // Slack has no list markup: it writes the bullet as text, as do we.
+        ordinal = within[i - 1] && featureKind(blockFeatureOf(within[i - 1]!)!.$type) === "list" ? ordinal + 1 : 1;
+        out.push((feature.ordered ? `${ordinal}. ` : "• ") + renderInline(start, end));
+      }
+      pos = end;
+    }
+    if (pos < to) out.push(renderInline(pos, to));
+    return out.join("");
+  };
+
+  return renderRange(0, bytes.length, blocks);
 }
 
 function renderSpan(raw: string, f: ColibriFacet, opts: RenderOpts): string {

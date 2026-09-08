@@ -262,6 +262,12 @@ function walkSectionItem(item: any, b: FacetBuilder) {
       break;
     }
     case "channel": {
+      // KNOWN DIVERGENCE from the worker: this writes the bare rkey, while
+      // facet#channel declares `format: at-uri` and the Colibri client parses
+      // it as one (see channelFacetUri in the worker's channels.ts). Backfill's
+      // map holds pre-migration rkeys on the old owner DID and has no
+      // old->new table, so it cannot build the migrated spelling the client
+      // resolves. One such facet is published; fix needs the shared package.
       const ch = channelOf.get(item.channel_id);
       const name = ch?.name ?? item.channel_id;
       const rkey = MANUAL_CHANNELS[item.channel_id];
@@ -297,58 +303,63 @@ function walkSectionItem(item: any, b: FacetBuilder) {
   }
 }
 
+// Colibri renders a #quote facet as a <blockquote>; the text stays clean.
+// This used to synthesise "> " prefixes and drop the inner facets.
 function walkQuote(elements: any[], b: FacetBuilder) {
-  // Build the inner text, then line-prefix with "> ". Every line gains 2 bytes,
-  // so inner facets are re-indexed rather than dropped — a link inside a quote
-  // would otherwise keep its label and lose its URL.
   const inner = new FacetBuilder();
   walkSection(elements, inner);
-  const { text, facets } = inner.finish();
-  const prefixed = text
-    .split("\n")
-    .map((l) => `> ${l}`)
-    .join("\n");
-  const base = b.byteOffset;
-  b.emit(prefixed);
-  const bytes = enc.encode(text);
-  const shift = (x: number) => {
-    let lines = 1;
-    for (let i = 0; i < x && i < bytes.length; i++) if (bytes[i] === 0x0a) lines++;
-    return base + x + 2 * lines;
-  };
-  for (const f of facets)
-    b.facets.push({ ...f, index: { byteStart: shift(f.index.byteStart), byteEnd: shift(f.index.byteEnd) } });
+  spliceInto(b, inner, [{ $type: "social.colibri.richtext.facet#quote" }]);
 }
 
-function walkPreformatted(elements: any[], b: FacetBuilder) {
-  // Render the inner text, then wrap the whole span in a single code facet.
-  const inner = new FacetBuilder();
-  walkSection(elements, inner);
-  const { text } = inner.finish();
+// Append a sub-builder's text to `b`, shifting its facets, and cover the whole
+// span with one block-level feature.
+function spliceInto(b: FacetBuilder, sub: FacetBuilder, features: any[]) {
+  const { text, facets } = sub.finish();
   if (!text) return;
-  b.emit("\n");
   const start = b.byteOffset;
   b.parts.push(text);
   b.byteOffset += utf8Len(text);
   b.facets.push({
     $type: "social.colibri.richtext.facet",
     index: { byteStart: start, byteEnd: b.byteOffset },
-    features: [{ $type: "social.colibri.richtext.facet#code" }],
+    features,
   });
-  b.emit("\n");
+  for (const f of facets)
+    b.facets.push({
+      ...f,
+      index: { byteStart: start + f.index.byteStart, byteEnd: start + f.index.byteEnd },
+    });
 }
 
+// Slack's preformatted blocks carry no language.
+function walkPreformatted(elements: any[], b: FacetBuilder) {
+  const pre = new FacetBuilder();
+  walkSection(elements, pre);
+  spliceInto(b, pre, [{ $type: "social.colibri.richtext.facet#codeblock" }]);
+}
+
+// One #list facet per item line, no bullet in the text — the client draws the
+// marker. Depth is the facet's `indent` (lexicon rev 5) with a fallback to the
+// leading whitespace before the item, so write both.
 function walkList(list: any, b: FacetBuilder) {
   const ordered = list.style === "ordered";
-  const pad = "  ".repeat(Math.max(0, list.indent ?? 0));
+  const indent = Math.max(0, list.indent ?? 0);
   const items = list.elements ?? [];
   for (let i = 0; i < items.length; i++) {
-    const prefix = ordered ? `${i + 1}. ` : "• ";
-    b.emit(pad + prefix);
-    // Items can be rich_text_section or another rich_text_list.
+    if (indent > 0) b.emit("  ".repeat(indent));
+    const start = b.byteOffset;
     const child = items[i];
-    if (child?.type === "rich_text_section") walkSection(child.elements ?? [], b);
-    else if (child?.elements) walkSection(child.elements, b);
+    if (child?.elements) walkSection(child.elements, b);
+    if (b.byteOffset > start)
+      b.facets.push({
+        $type: "social.colibri.richtext.facet",
+        index: { byteStart: start, byteEnd: b.byteOffset },
+        features: [
+          indent > 0
+            ? { $type: "social.colibri.richtext.facet#list", ordered, indent }
+            : { $type: "social.colibri.richtext.facet#list", ordered },
+        ],
+      });
     if (i < items.length - 1) b.emit("\n");
   }
 }

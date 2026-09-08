@@ -39,6 +39,7 @@ After deploy, set the Slack app's **Event Subscriptions -> Request URL** to `htt
 |---|---|
 | `POST /slack/events` | Verify HMAC, enqueue payload, ack <3s. |
 | Queue consumer | Capture as `slackRaw`, derive `social.colibri.message`, link via `slackOrigin`, project reactions, upload file blobs. |
+| Block structure | Slack's `rich_text_list`, `rich_text_quote` and `rich_text_preformatted` become `facet#list` (one per item line), `facet#quote` and `facet#codeblock` over clean text — Colibri's client draws the bullet, the blockquote rule and the code frame. `mrkdwn.ts` inverts them back to `• `, `> ` and ``` fences, which is what Slack uses. Read the lexicon from the network, not `vendor/colibri-social`: `_lexicon.colibri.social` TXT -> `did:plc:mprdjqjluoswa7awzggaggj3`. |
 | `GET /health` | Liveness check for monitoring. |
 | `POST /slack/replay` | Re-derive archived messages after a derivation fix: bearer `INJECT_TOKEN`, body = one `event_callback` envelope from `slackRaw` or an array, enqueued to `slack-events`. rkeys are `tidFromSlackTs(ts)`, so records are overwritten in place. `bun scripts/replay.ts --has-list [--dry-run]` picks the envelopes (newest per message, deletes excluded). |
 | `POST /atproto/inject` | Reverse half test producer: bearer `INJECT_TOKEN`, body = one Jetstream commit event or an array, enqueued to `atproto-events`. `bun scripts/inject.ts at://…` builds one from a live record. |
@@ -63,6 +64,7 @@ plaintext of the same message — so the archive in
 | `bun test test/corpus.test.ts` | The same two checks offline, over `test/fixtures/slack-corpus.json` — one real message per distinct combination of element types. Known reverse-leg gaps are listed by ts with a reason. |
 | `bun scripts/build-fixture.ts` | Rebuilds that fixture from the live archive. Run it after a new element type appears. |
 | `bun scripts/replay.ts --stale --dry-run` | Which published records a fixed walker would improve: the record drops words of Slack's plaintext that a fresh derivation keeps. Drop `--dry-run` (with `INJECT_TOKEN`) to re-derive them through `/slack/replay`. |
+| `bun scripts/replay.ts --reformat --dry-run` | Which published records carry different block-level facets (quote, list, codeblock, channel) than the walker produces now — a mapping change rather than a loss, invisible to `--stale`. Combine the two flags to select either. |
 
 Hand-written cases are what let `rich_text_list` and `message_mention` through:
 both were dropped silently for months because an unhandled element type falls

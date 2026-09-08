@@ -35,13 +35,11 @@ describe("archive corpus: the walker loses nothing Slack put in its own plaintex
 
 describe("round trip: blocks -> Colibri -> Slack mrkdwn", () => {
   // mrkdwn.ts calls itself the inverse of the walker. These are the cases in
-  // this corpus where it is not; over the whole archive 898 of 916 distinct
+  // this corpus where it is not; over the whole archive 901 of 916 distinct
   // messages (98%) round-trip exactly. Each entry is a known defect, not an
   // accepted equivalence — delete the entry when the defect is fixed, and
   // `bun scripts/roundtrip.ts` reports the live population of each class.
   const KNOWN: Record<string, string> = {
-    "1788143009.008369":
-      "reverse: a single-line code block renders as inline `code` — Colibri's lexicon has no block-code facet, so blockness is not carried",
     "1781908847.430869":
       "reverse: a bold span crossing a link is emitted as separate markers around each segment",
   };

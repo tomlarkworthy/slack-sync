@@ -241,26 +241,12 @@ function walkRichTextElements(
         for (const item of el.elements ?? []) walkSectionItem(item, b, resolveUser);
         break;
       case "rich_text_quote": {
+        // Colibri renders a #quote facet as a <blockquote>; the text stays
+        // clean. We used to synthesise "> " prefixes, which showed up
+        // literally and made the facet offsets need re-indexing.
         const sub = new FacetBuilder();
         for (const item of el.elements ?? []) walkSectionItem(item, sub, resolveUser);
-        const { text: inner, facets: innerFacets } = sub.finish();
-        // Facets were built against the unprefixed text; every line gains "> ",
-        // so a byte at inner offset x moves right by 2 * (lines before x + 1).
-        // Dropping them instead loses the URL of any link inside the quote.
-        const base = b.byteOffset;
-        b.emit(quotePrefixed(inner));
-        const innerBytes = utf8enc.encode(inner);
-        const shift = (x: number) => {
-          let lines = 1;
-          for (let i = 0; i < x && i < innerBytes.length; i++) if (innerBytes[i] === 0x0a) lines++;
-          return base + x + 2 * lines;
-        };
-        for (const f of innerFacets) {
-          b.facets.push({
-            ...f,
-            index: { byteStart: shift(f.index.byteStart), byteEnd: shift(f.index.byteEnd) },
-          });
-        }
+        spliceInto(b, sub, [{ $type: "social.colibri.richtext.facet#quote" }]);
         break;
       }
       case "rich_text_list":
@@ -269,19 +255,8 @@ function walkRichTextElements(
       case "rich_text_preformatted": {
         const pre = new FacetBuilder();
         for (const item of el.elements ?? []) walkSectionItem(item, pre, resolveUser);
-        const preText = pre.finish().text;
-        if (preText) {
-          b.emit("\n");
-          const start = b.byteOffset;
-          b.parts.push(preText);
-          b.byteOffset += utf8Len(preText);
-          b.facets.push({
-            $type: "social.colibri.richtext.facet",
-            index: { byteStart: start, byteEnd: b.byteOffset },
-            features: [{ $type: "social.colibri.richtext.facet#code" }],
-          });
-          b.emit("\n");
-        }
+        // Slack's preformatted blocks carry no language.
+        spliceInto(b, pre, [{ $type: "social.colibri.richtext.facet#codeblock" }]);
         break;
       }
     }
@@ -289,27 +264,59 @@ function walkRichTextElements(
   }
 }
 
-// Slack sends a bulleted/numbered list as its own element, siblings of the
-// sections around it; `indent` carries nesting depth. Colibri text is flat, so
-// each item becomes a prefixed line. Matches packages/backfill's walkList.
+// Append a sub-builder's text to `b`, shifting its facets to the new offsets,
+// and cover the whole span with one block-level feature.
+function spliceInto(b: FacetBuilder, sub: FacetBuilder, features: unknown[]) {
+  const { text, facets } = sub.finish();
+  if (!text) return;
+  const start = b.byteOffset;
+  b.parts.push(text);
+  b.byteOffset += utf8Len(text);
+  b.facets.push({
+    $type: "social.colibri.richtext.facet",
+    index: { byteStart: start, byteEnd: b.byteOffset },
+    features,
+  });
+  for (const f of facets) {
+    b.facets.push({
+      ...f,
+      index: { byteStart: start + f.index.byteStart, byteEnd: start + f.index.byteEnd },
+    });
+  }
+}
+
+// Slack sends a bulleted or numbered list as its own element, a sibling of the
+// sections around it, with `indent` for nesting depth. Colibri's model is one
+// #list facet per item line and no bullet in the text — the client draws the
+// marker. Depth comes from the facet's `indent` (lexicon rev 5) with a
+// fallback to the leading whitespace before the item, so we write both and
+// stay readable on the published rev 4.
 function walkList(
   list: SlackBlockElement,
   b: FacetBuilder,
   resolveUser: (id: string) => string,
 ) {
   const ordered = list.style === "ordered";
-  const pad = "  ".repeat(Math.max(0, list.indent ?? 0));
+  const indent = Math.max(0, list.indent ?? 0);
   const items = list.elements ?? [];
   for (let i = 0; i < items.length; i++) {
-    b.emit(pad + (ordered ? `${i + 1}. ` : "• "));
-    const child = items[i]!;
-    for (const item of child.elements ?? []) walkSectionItem(item, b, resolveUser);
+    if (indent > 0) b.emit("  ".repeat(indent));
+    const start = b.byteOffset;
+    for (const item of items[i]!.elements ?? []) walkSectionItem(item, b, resolveUser);
+    if (b.byteOffset > start) {
+      b.facets.push({
+        $type: "social.colibri.richtext.facet",
+        index: { byteStart: start, byteEnd: b.byteOffset },
+        features: [
+          indent > 0
+            ? { $type: "social.colibri.richtext.facet#list", ordered, indent }
+            : { $type: "social.colibri.richtext.facet#list", ordered },
+        ],
+      });
+    }
     if (i < items.length - 1) b.emit("\n");
   }
 }
-
-const quotePrefixed = (s: string) =>
-  s.split("\n").map((l) => `> ${l}`).join("\n");
 
 function walkSectionItem(
   item: SlackBlockElement,

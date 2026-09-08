@@ -7,6 +7,10 @@
 //   INJECT_TOKEN=… bun scripts/replay.ts --stale
 //   INJECT_TOKEN=… bun scripts/replay.ts --ts 1788810788.677819
 //
+// --reformat selects records whose block-level facets (quote, list, codeblock,
+// channel) differ from what the walker produces now — a mapping change rather
+// than a loss, which --stale cannot see.
+//
 // --stale asks the question directly rather than naming a bug: for every
 // archived message, does the published Colibri record still carry every word
 // of Slack's own plaintext? A record derived by a walker that has since been
@@ -14,7 +18,7 @@
 // selector (blocks containing a rich_text_list).
 // WORKER_URL defaults to the deployed worker.
 
-import { lostFrom, lostWords } from "../test/support/compare";
+import { derive, lostFrom, lostWords } from "../test/support/compare";
 import { tidFromSlackTs } from "../src/atproto";
 
 const WORKER_URL = process.env.WORKER_URL ?? "https://slack-sync-bridge.endpointservices.workers.dev";
@@ -28,9 +32,10 @@ const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
 const hasListFilter = args.includes("--has-list");
 const staleFilter = args.includes("--stale");
+const reformatFilter = args.includes("--reformat");
 const tsFilter = new Set(args.flatMap((a, i) => (args[i - 1] === "--ts" ? [a] : [])));
-if (!hasListFilter && !staleFilter && tsFilter.size === 0) {
-  throw new Error("usage: replay.ts (--stale | --has-list | --ts <slack ts>…) [--dry-run]");
+if (!hasListFilter && !staleFilter && !reformatFilter && tsFilter.size === 0) {
+  throw new Error("usage: replay.ts (--stale | --reformat | --has-list | --ts <slack ts>…) [--dry-run]");
 }
 const token = process.env.INJECT_TOKEN;
 if (!token && !dryRun) throw new Error("INJECT_TOKEN not set");
@@ -64,7 +69,7 @@ const containsList = (els: any[] | undefined): boolean =>
 
 // Published Colibri messages, by rkey, for --stale.
 const published = new Map<string, { text: string; facets: any[] }>();
-if (staleFilter) {
+if (staleFilter || reformatFilter) {
   let cursor: string | undefined;
   do {
     const u = new URL(`${PDS}/xrpc/com.atproto.repo.listRecords`);
@@ -84,6 +89,25 @@ if (staleFilter) {
 // 2048-char cap, or one where Slack autolinked a bare domain its own block
 // tree carries as plain text, loses words no replay can restore — re-POSTing
 // those forever would be churn.
+// A structural change rather than a loss: the published record does not carry
+// the block-level facets the current walker produces (quote, list, codeblock,
+// channel — where we used to synthesise "> " and "• " as literal text). Word
+// counts are unchanged, so --stale cannot see these. Compare only block
+// features: the byline adds a #mention the block-only derivation has not got.
+const BLOCK_FEATURES = new Set(["quote", "list", "codeblock", "channel"]);
+const blockShape = (facets: any[] | undefined): string =>
+  (facets ?? [])
+    .flatMap((f: any) => (f.features ?? []).map((x: any) => String(x.$type).split("#")[1]))
+    .filter((k: string) => BLOCK_FEATURES.has(k))
+    .sort()
+    .join(",");
+
+function needsReformat(inner: any): boolean {
+  const rec = published.get(tidFromSlackTs(inner.ts));
+  if (!rec) return false;
+  return blockShape(rec.facets) !== blockShape(derive(inner.blocks).facets);
+}
+
 function isStale(inner: any): boolean {
   const rec = published.get(tidFromSlackTs(inner.ts));
   if (!rec) return false; // never published (unmapped channel, skipped subtype)
@@ -115,8 +139,10 @@ for await (const v of slackRaw()) {
   const key = `${v.slackChannelId}/${inner.ts}`;
   const match = tsFilter.size
     ? tsFilter.has(inner.ts ?? "")
-    : staleFilter
-      ? Array.isArray(inner.blocks) && typeof inner.text === "string" && isStale(inner)
+    : staleFilter || reformatFilter
+      ? Array.isArray(inner.blocks) &&
+        typeof inner.text === "string" &&
+        ((staleFilter && isStale(inner)) || (reformatFilter && needsReformat(inner)))
       : containsList(inner.blocks);
   if (!match) continue;
   const prev = newest.get(key);

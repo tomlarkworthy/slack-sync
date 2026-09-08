@@ -58,10 +58,10 @@ describe("renderFacets", () => {
     expect(renderFacets(t, facets, opts)).toBe("*ab* cd");
   });
 
-  test("list feature and unknown types render as plain text", () => {
-    const t = "1. one";
-    const facets = [{ index: { byteStart: 0, byteEnd: 6 }, features: [{ $type: `${F}#list`, ordered: true }] }];
-    expect(renderFacets(t, facets, opts)).toBe("1. one");
+  test("unknown feature types render as plain text", () => {
+    const t = "whatever";
+    const facets = [{ index: { byteStart: 0, byteEnd: 8 }, features: [{ $type: `${F}#nosuchthing` }] }];
+    expect(renderFacets(t, facets, opts)).toBe("whatever");
   });
 
   test("escapeMrkdwn", () => {
@@ -83,5 +83,32 @@ describe("channel facets", () => {
     const uri = channelFacetUri(CHANNELS.find((c) => c.slack === "C03RR0W5DGC")!);
     expect(renderFacets(t, [f("#devlog-together", uri), f("#elsewhere", "at://did:plc:x/social.colibri.channel/nope")], withChannel))
       .toBe("see <#C03RR0W5DGC> and #elsewhere");
+  });
+});
+
+describe("block facets", () => {
+  const at = (t: string, from: string, type: string, extra: object = {}) => ({
+    index: { byteStart: t.indexOf(from), byteEnd: t.indexOf(from) + new TextEncoder().encode(from).length },
+    features: [{ $type: `${F}#${type}`, ...extra }],
+  });
+
+  test("a quote becomes Slack's blockquote, marker unescaped, links inside kept", () => {
+    const t = "he said this\nand that";
+    expect(
+      renderFacets(t, [at(t, t, "quote"), at(t, "this", "link", { uri: "https://x.y/" })], opts),
+    ).toBe("> he said <https://x.y/|this>\n> and that");
+  });
+
+  test("list items get Slack's own markers; ordered items count from 1", () => {
+    const t = "alpha\nbeta";
+    expect(renderFacets(t, [at(t, "alpha", "list", { ordered: false }), at(t, "beta", "list", { ordered: false })], opts))
+      .toBe("• alpha\n• beta");
+    expect(renderFacets(t, [at(t, "alpha", "list", { ordered: true }), at(t, "beta", "list", { ordered: true })], opts))
+      .toBe("1. alpha\n2. beta");
+  });
+
+  test("a codeblock is fenced", () => {
+    const t = "one\ntwo";
+    expect(renderFacets(t, [at(t, t, "codeblock")], opts)).toBe("```one\ntwo```");
   });
 });

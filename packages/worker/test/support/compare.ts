@@ -51,6 +51,9 @@ export function words(s: string): string[] {
     .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
     .replace(/:[a-z0-9_+-]+:/g, " ")
     .replace(/\p{Extended_Pictographic}/gu, " ")
+    // List markers are structure, not content: Slack spells them in its
+    // plaintext ("• x", "1. x"), we carry them as #list facets.
+    .replace(/^[ \t]*(?:•|\d+\.)[ \t]/gm, " ")
     .replace(/•/g, " ")
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim().toLowerCase().split(" ").filter(Boolean);
@@ -85,6 +88,9 @@ export function lostFrom(
 /** Spellings of the same mrkdwn that Slack treats as equivalent. */
 export function canonMrkdwn(s: string): string {
   return s
+    // Slack's plaintext escapes the blockquote marker it requires unescaped on
+    // input, and is not consistent about it. Either spelling is the same quote.
+    .replace(/^&gt; /gm, "> ")
     .replace(/<(https?:[^|>]+)\|\1>/g, "<$1>")
     .replace(/\p{Extended_Pictographic}️?(‍\p{Extended_Pictographic}️?)*/gu, (m) => `:${emojiNameFor(m) ?? "e"}:`)
     .replace(/[ \t]+/g, " ")
