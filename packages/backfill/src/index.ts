@@ -328,10 +328,11 @@ function walkPreformatted(elements: any[], b: FacetBuilder) {
 
 function walkList(list: any, b: FacetBuilder) {
   const ordered = list.style === "ordered";
+  const pad = "  ".repeat(Math.max(0, list.indent ?? 0));
   const items = list.elements ?? [];
   for (let i = 0; i < items.length; i++) {
     const prefix = ordered ? `${i + 1}. ` : "• ";
-    b.emit(prefix);
+    b.emit(pad + prefix);
     // Items can be rich_text_section or another rich_text_list.
     const child = items[i];
     if (child?.type === "rich_text_section") walkSection(child.elements ?? [], b);

@@ -17,6 +17,9 @@
 //          reaction_removed -> delete  social.colibri.reaction
 //     Throws on failure -> CF retries up to max_retries -> dead-letters.
 //
+//   POST /slack/replay re-enqueues archived envelopes from slackRaw, so a
+//   derivation fix can be applied to messages already published.
+//
 //   queue() also drains `atproto-events` (Colibri -> Slack, see reverse.ts).
 //   That queue has no producer wired yet: POST /atproto/inject feeds it by
 //   hand while the reverse half is under test, so nothing can loop.
@@ -121,7 +124,10 @@ type SlackBlockElement = {
   name?: string;
   unicode?: string;
   range?: string;
-  style?: { bold?: boolean; italic?: boolean; strike?: boolean; code?: boolean };
+  // rich_text_section items carry a style object; rich_text_list carries
+  // "bullet" | "ordered" in the same field.
+  style?: { bold?: boolean; italic?: boolean; strike?: boolean; code?: boolean } | string;
+  indent?: number; // rich_text_list nesting depth
 };
 
 // ── HMAC ────────────────────────────────────────────────────────────────────
@@ -194,7 +200,7 @@ class FacetBuilder {
   }
 }
 
-function walkBlocks(
+export function walkBlocks(
   blocks: SlackBlock[],
   b: FacetBuilder,
   resolveUser: (id: string) => string,
@@ -245,6 +251,9 @@ function walkRichTextElements(
         b.emit(quoted);
         break;
       }
+      case "rich_text_list":
+        walkList(el, b, resolveUser);
+        break;
       case "rich_text_preformatted": {
         const pre = new FacetBuilder();
         for (const item of el.elements ?? []) walkSectionItem(item, pre, resolveUser);
@@ -268,6 +277,25 @@ function walkRichTextElements(
   }
 }
 
+// Slack sends a bulleted/numbered list as its own element, siblings of the
+// sections around it; `indent` carries nesting depth. Colibri text is flat, so
+// each item becomes a prefixed line. Matches packages/backfill's walkList.
+function walkList(
+  list: SlackBlockElement,
+  b: FacetBuilder,
+  resolveUser: (id: string) => string,
+) {
+  const ordered = list.style === "ordered";
+  const pad = "  ".repeat(Math.max(0, list.indent ?? 0));
+  const items = list.elements ?? [];
+  for (let i = 0; i < items.length; i++) {
+    b.emit(pad + (ordered ? `${i + 1}. ` : "• "));
+    const child = items[i]!;
+    for (const item of child.elements ?? []) walkSectionItem(item, b, resolveUser);
+    if (i < items.length - 1) b.emit("\n");
+  }
+}
+
 function walkSectionItem(
   item: SlackBlockElement,
   b: FacetBuilder,
@@ -276,7 +304,7 @@ function walkSectionItem(
   switch (item.type) {
     case "text": {
       const features: unknown[] = [];
-      const s = item.style ?? {};
+      const s = typeof item.style === "object" && item.style !== null ? item.style : {};
       if (s.bold) features.push({ $type: "social.colibri.richtext.facet#bold" });
       if (s.italic) features.push({ $type: "social.colibri.richtext.facet#italic" });
       if (s.strike) features.push({ $type: "social.colibri.richtext.facet#strikethrough" });
@@ -761,6 +789,32 @@ export default {
       }
       for (const e of events) await env.EVENTS_ATPROTO.send(e as JetstreamEvent);
       return new Response(JSON.stringify({ enqueued: events.length }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Re-derive archived Slack events. The slackRaw collection is a lossless
+    // capture, so a derivation fix (e.g. the dropped rich_text_list) is
+    // repaired by feeding old envelopes back through the same queue: rkeys are
+    // tidFromSlackTs(ts), so putRecord overwrites in place. scripts/replay.ts
+    // picks the envelopes. Bearer-authenticated instead of HMAC — Slack's
+    // signature only covers the request it signed.
+    if (request.method === "POST" && url.pathname === "/slack/replay") {
+      if (!env.INJECT_TOKEN || request.headers.get("Authorization") !== `Bearer ${env.INJECT_TOKEN}`) {
+        return new Response("unauthorized", { status: 401 });
+      }
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return new Response("invalid json", { status: 400 });
+      }
+      const envelopes = (Array.isArray(body) ? body : [body]) as SlackEnvelope[];
+      if (!envelopes.every((e) => e?.type === "event_callback")) {
+        return new Response("expected slack event_callback envelope(s)", { status: 400 });
+      }
+      for (const e of envelopes) await env.EVENTS.send(e as SlackEventCallback);
+      return new Response(JSON.stringify({ enqueued: envelopes.length }), {
         headers: { "Content-Type": "application/json" },
       });
     }

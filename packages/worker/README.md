@@ -40,6 +40,7 @@ After deploy, set the Slack app's **Event Subscriptions -> Request URL** to `htt
 | `POST /slack/events` | Verify HMAC, enqueue payload, ack <3s. |
 | Queue consumer | Capture as `slackRaw`, derive `social.colibri.message`, link via `slackOrigin`, project reactions, upload file blobs. |
 | `GET /health` | Liveness check for monitoring. |
+| `POST /slack/replay` | Re-derive archived messages after a derivation fix: bearer `INJECT_TOKEN`, body = one `event_callback` envelope from `slackRaw` or an array, enqueued to `slack-events`. rkeys are `tidFromSlackTs(ts)`, so records are overwritten in place. `bun scripts/replay.ts --has-list [--dry-run]` picks the envelopes (newest per message, deletes excluded). |
 | `POST /atproto/inject` | Reverse half test producer: bearer `INJECT_TOKEN`, body = one Jetstream commit event or an array, enqueued to `atproto-events`. `bun scripts/inject.ts at://…` builds one from a live record. |
 | Forward lookup on mirrored posts | A Slack reply or reaction whose target was posted by the reverse half (author = bot) reads the post's `colibri_mirror` metadata via `conversations.replies` and writes `parent` as the native at-uri instead of a bot-repo rkey. |
 | Queue consumer `atproto-events` | Reverse half (`src/reverse.ts`): mirror `social.colibri.message` / `.reaction` from any author except the bot into Slack as the bot user, author as the post name and avatar (`@name:` byline only without `chat:write.customize`), `slackMirror` record per mirrored record for idempotency and lookups. |
