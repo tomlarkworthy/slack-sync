@@ -23,6 +23,33 @@ A `--dry-run` (the default) prints the messages, channels and reactions it would
 publish. `--live` logs in and refuses to publish unless the session DID is the
 bridge bot.
 
+`--diff-published` additionally fetches each derived record's published version
+and reports which ones would actually change. A re-run rewrites every record for
+the day, so this is how the blast radius is known before writing. Facets are
+compared by value: the PDS returns CBOR-decoded maps in canonical key order,
+which is not the order the walker builds them in, and comparing the serialised
+form makes every record look changed.
+
+## Repairing already-backfilled records
+
+`scripts/repair-days.sh` re-derives the days the first backfill covered:
+
+```sh
+sh vendor/slack-sync/packages/backfill/scripts/repair-days.sh              # preview
+BSKY_HANDLE=… BSKY_APP_PASSWORD=… sh …/repair-days.sh --live               # write
+```
+
+The day list is the days that already have published records
+(`scripts/coverage.ts` derives it, by finding the published messages with no
+archived Slack envelope). `2026/05/01`, `05/03` and `05/04` have dumps but were
+never backfilled — running them would add 31 new messages rather than repair
+anything, so they are not in the list.
+
+As of 2026-09-08 the preview reports **28 of 299 records would change** across
+10 of the 25 days: lists and quotes that were published as literal `• ` and
+`> ` text before the block facets landed, a `#channel` facet published as a bare
+rkey, and links Slack autolinked that the old walker dropped from the text.
+
 ## Inputs
 
 It reads from disk, all paths CWD-relative:

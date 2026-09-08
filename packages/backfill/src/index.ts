@@ -32,6 +32,9 @@ import {
   didForSlackUser,
   emojiForName,
   FacetBuilder,
+  hash10,
+  tidFromMicros,
+  tidFromSlackTs,
   walkBlocks,
   type WalkContext,
 } from "@slack-sync/shared";
@@ -57,6 +60,7 @@ const { values } = parseArgs({
     },
     limit: { type: "string", default: "1000" },
     live: { type: "boolean", default: false },
+    "diff-published": { type: "boolean", default: false },
     "delay-ms": { type: "string", default: "200" },
   },
 });
@@ -70,6 +74,7 @@ const srcDay = values["src-day"]!;
 const srcDir = values["src-dir"]!;
 const limit = parseInt(values.limit!, 10);
 const dryRun = !values.live;
+const diffPublished = values["diff-published"]!;
 const delayMs = parseInt(values["delay-ms"]!, 10);
 
 // ── reference data ──────────────────────────────────────────────────────────
@@ -126,27 +131,6 @@ try {
   console.error(`(emoji data not loaded from ${EMOJI_DATA_JS}; falling back to :name:)`);
 }
 
-// ── deterministic TID derivation (53b microseconds + 10b clock id) ──────────
-const TID_ALPHABET = "234567abcdefghijklmnopqrstuvwxyz";
-function tidFromMicros(microseconds: bigint, clockId = 0): string {
-  let n = (microseconds << 10n) | BigInt(clockId & 0x3ff);
-  const chars: string[] = [];
-  for (let i = 0; i < 13; i++) {
-    chars.push(TID_ALPHABET[Number(n & 0x1fn)]);
-    n >>= 5n;
-  }
-  return chars.reverse().join("");
-}
-function tidFromSlackTs(ts: string, clockId = 0) {
-  const [sec, usecRaw = ""] = ts.split(".");
-  const usec = (usecRaw + "000000").slice(0, 6);
-  return tidFromMicros(BigInt(sec) * 1_000_000n + BigInt(usec), clockId);
-}
-function hash10(s: string): number {
-  let h = 0;
-  for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0;
-  return Math.abs(h) & 0x3ff;
-}
 // Reaction rkey: synthesise time from the *message* ts so reactions live next to
 // their target in TID order; clockId distinguishes the emoji. With 10 bits of
 // clockId space and a small number of distinct emojis per message, collisions
@@ -401,6 +385,68 @@ if (allWithReactions.length > 0) {
       );
     }
   }
+}
+
+// ── diff against what is already published ─────────────────────────────────
+// A re-run rewrites every record for the day. --diff-published says which ones
+// would actually change, so the blast radius of a repair run is known before
+// it writes: the derivation has moved since the first backfill (block facets
+// for lists and quotes, no bare-rkey channel facet) and only some records were
+// touched by it.
+if (diffPublished) {
+  const APPVIEW_PDS = "https://jellybaby.us-east.host.bsky.network";
+  // The PDS returns CBOR-decoded maps in canonical key order, which is not the
+  // order we build them in — compare by value, or every record looks changed.
+  const stable = (v: any): any =>
+    Array.isArray(v)
+      ? v.map(stable)
+      : v && typeof v === "object"
+        ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])]))
+        : v;
+  const shapeOf = (facets: any[] | undefined) =>
+    (facets ?? [])
+      .flatMap((f: any) => (f.features ?? []).map((x: any) => String(x.$type).split("#")[1]))
+      .sort()
+      .join(",");
+  const built: { rkey: string; rec: any }[] = [
+    ...tops.map((m) => buildMessage(m, channelMap[m.channel_id])),
+    ...replies.map((m) => buildMessage(m, channelMap[m.channel_id], tidFromSlackTs(m.thread_ts!))),
+  ].map((b) => ({ rkey: b.rkey, rec: b.record }));
+  let same = 0;
+  const changed: string[] = [];
+  for (const { rkey, rec } of built) {
+    const u = new URL(`${APPVIEW_PDS}/xrpc/com.atproto.repo.getRecord`);
+    u.searchParams.set("repo", BOT_DID);
+    u.searchParams.set("collection", "social.colibri.message");
+    u.searchParams.set("rkey", rkey);
+    const r = await fetch(u);
+    if (!r.ok) {
+      changed.push(`  ${rkey}  NEW (not published)`);
+      continue;
+    }
+    const cur = ((await r.json()) as any).value;
+    const dText = cur.text !== rec.text;
+    // Compare the whole facet array, not just the shape: a #channel facet
+    // republished as an at-uri instead of a bare rkey keeps its $type.
+    const dShape =
+      JSON.stringify(stable(cur.facets ?? [])) !== JSON.stringify(stable(rec.facets ?? []));
+    if (!dText && !dShape) {
+      same++;
+      continue;
+    }
+    changed.push(
+      `  ${rkey}  ${dText ? "text" : "    "} ${dShape ? "facets" : "      "}\n` +
+        (dText ? `    - ${JSON.stringify(cur.text?.slice(0, 160))}\n    + ${JSON.stringify(rec.text?.slice(0, 160))}\n` : "") +
+        (dShape
+          ? shapeOf(cur.facets) !== shapeOf(rec.facets)
+            ? `    - [${shapeOf(cur.facets)}]\n    + [${shapeOf(rec.facets)}]\n`
+            : `    - ${JSON.stringify(cur.facets)}\n    + ${JSON.stringify(rec.facets)}\n`
+          : ""),
+    );
+  }
+  console.log("");
+  console.log(`DIFF vs PUBLISHED: ${changed.length} would change, ${same} unchanged, of ${built.length}`);
+  for (const line of changed) console.log(line);
 }
 
 if (dryRun) {
