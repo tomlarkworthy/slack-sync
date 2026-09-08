@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { walkBlocks } from "../src/index";
+import { channelForRef } from "../src/channels";
 
 // Minimal stand-in for the builder the message path seeds with the byline.
 class B {
@@ -143,5 +144,63 @@ describe("rich_text_quote and rich_text_preformatted", () => {
     ]);
     expect(r.text).toBe("one\ntwo");
     expect(r.facets.map((f) => f.features[0].$type)).toEqual([`${F}#codeblock`]);
+  });
+});
+
+describe("elements that were silently dropped", () => {
+  // A permalink to another Slack message. Same url+text shape as a link, but
+  // no case in the switch, so it vanished — a message that was only a
+  // permalink published with empty text (e.g. Ev0BSKQTLQ0X, #devlog-together
+  // 2026-09-07 22:19:27.991759 -> at://…/social.colibri.message/3mux6b26mhk22).
+  test("message_mention keeps its URL", () => {
+    const url = "https://feelingofcomputing.slack.com/archives/C03RR0W5DGC/p1788124779006759";
+    const r = render([
+      {
+        type: "rich_text",
+        elements: [
+          {
+            type: "rich_text_section",
+            elements: [
+              { type: "message_mention", url, text: url, channel_id: "C03RR0W5DGC", message_ts: "1788124779.006759" },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(r.text).toBe(url);
+    expect(r.facets).toHaveLength(1);
+    expect(r.facets[0].features[0]).toEqual({ $type: `${F}#link`, uri: url });
+  });
+
+  // facet#channel declares `format: at-uri` while describing itself as "the
+  // record key"; ChannelFacet.tsx does AtURI.parseAtURI(channel).did, so a
+  // bare rkey renders unresolved. The migrated spelling is what resolves.
+  test("a channel reference is a #channel facet carrying an at-uri", () => {
+    const r = render([
+      {
+        type: "rich_text",
+        elements: [
+          { type: "rich_text_section", elements: [{ type: "channel", channel_id: "C03RR0W5DGC" }] },
+        ],
+      },
+    ]);
+    expect(r.text).toBe("#devlog-together");
+    const feature = r.facets[0].features[0];
+    expect(feature.$type).toBe(`${F}#channel`);
+    expect(feature.channel).toMatch(/^at:\/\/did:plc:[a-z0-9]+\/social\.colibri\.channel\/[a-z0-9]+$/);
+    expect(channelForRef(feature.channel)?.slack).toBe("C03RR0W5DGC");
+  });
+
+  test("an unmapped channel stays plain text rather than an off-spec facet", () => {
+    const r = render([
+      {
+        type: "rich_text",
+        elements: [
+          { type: "rich_text_section", elements: [{ type: "channel", channel_id: "CNOTOURS" }] },
+        ],
+      },
+    ]);
+    expect(r.text).toBe("#CNOTOURS");
+    expect(r.facets).toEqual([]);
   });
 });
