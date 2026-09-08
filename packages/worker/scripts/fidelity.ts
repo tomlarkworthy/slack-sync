@@ -7,7 +7,7 @@
 //
 //   bun scripts/fidelity.ts                 # whole slackRaw archive
 //   bun scripts/fidelity.ts --json out.json # dump divergences as a fixture
-import { derive, lostWords, words } from "../test/support/compare";
+import { derive, lostWords, words } from "@slack-sync/shared";
 
 const BOT_DID = "did:plc:4gcxakknd6hxtnhf33miwsob";
 const PDS = "https://jellybaby.us-east.host.bsky.network";

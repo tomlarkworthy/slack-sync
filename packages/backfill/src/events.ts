@@ -25,8 +25,7 @@
 //   BSKY_HANDLE=… BSKY_APP_PASSWORD=… bun packages/backfill/src/events.ts --live
 
 import { parseArgs } from "node:util";
-import { BOT_DID, tidFromMicros } from "../../worker/src/atproto";
-import { channelForRef, COMMUNITY_DID } from "../../worker/src/channels";
+import { BOT_DID, channelForRef, COMMUNITY_DID, tidFromMicros } from "@slack-sync/shared";
 import { buildEvent, EVENT_COLLECTION, type BridgeEvent } from "../../worker/src/eventlog";
 
 const PDS = "https://bsky.social";

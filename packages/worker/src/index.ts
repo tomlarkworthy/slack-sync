@@ -26,10 +26,19 @@
 //
 // Channel map lives in channels.ts — channel additions require a redeploy.
 
-import { didForSlackUser } from "./slack-to-did";
-import { CHANNEL_MAP, channelFacetUri, channelForSlackId } from "./channels";
+import { didForSlackUser } from "@slack-sync/shared";
+import { CHANNEL_MAP, channelFacetUri, channelForSlackId } from "@slack-sync/shared";
+import {
+  collectMentionedUserIds,
+  FacetBuilder,
+  utf8Len,
+  walkBlocks,
+  type SlackBlock,
+  type SlackBlockElement,
+  type WalkContext,
+} from "@slack-sync/shared";
 import { logEvent } from "./eventlog";
-import { emojiForName } from "./emoji";
+import { emojiForName } from "@slack-sync/shared";
 import {
   deleteRecord,
   getBskySession,
@@ -113,23 +122,6 @@ interface SlackReactionEvent {
   item_user?: string; // author of the reacted-to message
   event_ts?: string;
 }
-type SlackBlock = { type: string; elements?: SlackBlockElement[] };
-type SlackBlockElement = {
-  type: string;
-  elements?: SlackBlockElement[];
-  text?: string;
-  url?: string;
-  user_id?: string;
-  channel_id?: string;
-  name?: string;
-  unicode?: string;
-  range?: string;
-  // rich_text_section items carry a style object; rich_text_list carries
-  // "bullet" | "ordered" in the same field.
-  style?: { bold?: boolean; italic?: boolean; strike?: boolean; code?: boolean } | string;
-  indent?: number; // rich_text_list nesting depth
-};
-
 // ── HMAC ────────────────────────────────────────────────────────────────────
 async function verifySlackSignature(
   rawBody: string,
@@ -166,232 +158,6 @@ async function verifySlackSignature(
     diff |= computed.charCodeAt(i) ^ signatureHeader.charCodeAt(i);
   }
   return diff === 0;
-}
-
-// ── facet builder + blocks walker ──────────────────────────────────────────
-const utf8enc = new TextEncoder();
-const utf8Len = (s: string) => utf8enc.encode(s).length;
-
-type Facet = {
-  $type: "social.colibri.richtext.facet";
-  index: { byteStart: number; byteEnd: number };
-  features: unknown[];
-};
-
-class FacetBuilder {
-  parts: string[] = [];
-  facets: Facet[] = [];
-  byteOffset = 0;
-  emit(text: string, ...features: unknown[]) {
-    if (!text) return;
-    const start = this.byteOffset;
-    this.parts.push(text);
-    this.byteOffset += utf8Len(text);
-    if (features.length > 0) {
-      this.facets.push({
-        $type: "social.colibri.richtext.facet",
-        index: { byteStart: start, byteEnd: this.byteOffset },
-        features,
-      });
-    }
-  }
-  finish() {
-    return { text: this.parts.join(""), facets: this.facets };
-  }
-}
-
-export function walkBlocks(
-  blocks: SlackBlock[],
-  b: FacetBuilder,
-  resolveUser: (id: string) => string,
-) {
-  for (let i = 0; i < blocks.length; i++) {
-    const block = blocks[i]!;
-    if (block.type !== "rich_text") continue;
-    walkRichTextElements(block.elements ?? [], b, resolveUser);
-    if (i < blocks.length - 1) b.emit("\n");
-  }
-}
-
-// Collect Slack user_ids referenced as inline `<@U…>` mentions. The walker
-// is sync but getDisplayName is async, so we pre-resolve into userNameCache
-// before walking — otherwise inline mentions render as raw `@U…` ids.
-function collectMentionedUserIds(blocks: SlackBlock[]): string[] {
-  const ids = new Set<string>();
-  const walk = (els?: SlackBlockElement[]) => {
-    if (!els) return;
-    for (const el of els) {
-      if (el.type === "user" && el.user_id) ids.add(el.user_id);
-      walk(el.elements);
-    }
-  };
-  for (const block of blocks) walk(block.elements);
-  return [...ids];
-}
-
-function walkRichTextElements(
-  elements: SlackBlockElement[],
-  b: FacetBuilder,
-  resolveUser: (id: string) => string,
-) {
-  for (let i = 0; i < elements.length; i++) {
-    const el = elements[i]!;
-    switch (el.type) {
-      case "rich_text_section":
-        for (const item of el.elements ?? []) walkSectionItem(item, b, resolveUser);
-        break;
-      case "rich_text_quote": {
-        // Colibri renders a #quote facet as a <blockquote>; the text stays
-        // clean. We used to synthesise "> " prefixes, which showed up
-        // literally and made the facet offsets need re-indexing.
-        const sub = new FacetBuilder();
-        for (const item of el.elements ?? []) walkSectionItem(item, sub, resolveUser);
-        spliceInto(b, sub, [{ $type: "social.colibri.richtext.facet#quote" }]);
-        break;
-      }
-      case "rich_text_list":
-        walkList(el, b, resolveUser);
-        break;
-      case "rich_text_preformatted": {
-        const pre = new FacetBuilder();
-        for (const item of el.elements ?? []) walkSectionItem(item, pre, resolveUser);
-        // Slack's preformatted blocks carry no language.
-        spliceInto(b, pre, [{ $type: "social.colibri.richtext.facet#codeblock" }]);
-        break;
-      }
-    }
-    if (i < elements.length - 1) b.emit("\n");
-  }
-}
-
-// Append a sub-builder's text to `b`, shifting its facets to the new offsets,
-// and cover the whole span with one block-level feature.
-function spliceInto(b: FacetBuilder, sub: FacetBuilder, features: unknown[]) {
-  const { text, facets } = sub.finish();
-  if (!text) return;
-  const start = b.byteOffset;
-  b.parts.push(text);
-  b.byteOffset += utf8Len(text);
-  b.facets.push({
-    $type: "social.colibri.richtext.facet",
-    index: { byteStart: start, byteEnd: b.byteOffset },
-    features,
-  });
-  for (const f of facets) {
-    b.facets.push({
-      ...f,
-      index: { byteStart: start + f.index.byteStart, byteEnd: start + f.index.byteEnd },
-    });
-  }
-}
-
-// Slack sends a bulleted or numbered list as its own element, a sibling of the
-// sections around it, with `indent` for nesting depth. Colibri's model is one
-// #list facet per item line and no bullet in the text — the client draws the
-// marker. Depth comes from the facet's `indent` (lexicon rev 5) with a
-// fallback to the leading whitespace before the item, so we write both and
-// stay readable on the published rev 4.
-function walkList(
-  list: SlackBlockElement,
-  b: FacetBuilder,
-  resolveUser: (id: string) => string,
-) {
-  const ordered = list.style === "ordered";
-  const indent = Math.max(0, list.indent ?? 0);
-  const items = list.elements ?? [];
-  for (let i = 0; i < items.length; i++) {
-    if (indent > 0) b.emit("  ".repeat(indent));
-    const start = b.byteOffset;
-    for (const item of items[i]!.elements ?? []) walkSectionItem(item, b, resolveUser);
-    if (b.byteOffset > start) {
-      b.facets.push({
-        $type: "social.colibri.richtext.facet",
-        index: { byteStart: start, byteEnd: b.byteOffset },
-        features: [
-          indent > 0
-            ? { $type: "social.colibri.richtext.facet#list", ordered, indent }
-            : { $type: "social.colibri.richtext.facet#list", ordered },
-        ],
-      });
-    }
-    if (i < items.length - 1) b.emit("\n");
-  }
-}
-
-function walkSectionItem(
-  item: SlackBlockElement,
-  b: FacetBuilder,
-  resolveUser: (id: string) => string,
-) {
-  switch (item.type) {
-    case "text": {
-      const features: unknown[] = [];
-      const s = typeof item.style === "object" && item.style !== null ? item.style : {};
-      if (s.bold) features.push({ $type: "social.colibri.richtext.facet#bold" });
-      if (s.italic) features.push({ $type: "social.colibri.richtext.facet#italic" });
-      if (s.strike) features.push({ $type: "social.colibri.richtext.facet#strikethrough" });
-      if (s.code) features.push({ $type: "social.colibri.richtext.facet#code" });
-      b.emit(item.text ?? "", ...features);
-      break;
-    }
-    // message_mention is a permalink to another Slack message; it carries the
-    // same url + text as a link, plus channel_id/message_ts we do not use.
-    case "message_mention":
-    case "link":
-      if (item.url)
-        b.emit(item.text || item.url, {
-          $type: "social.colibri.richtext.facet#link",
-          uri: item.url,
-        });
-      break;
-    case "user":
-      if (item.user_id) {
-        const did = didForSlackUser(item.user_id);
-        const text = `@${resolveUser(item.user_id)}`;
-        if (did) {
-          b.emit(text, {
-            $type: "social.colibri.richtext.facet#mention",
-            did,
-          });
-        } else {
-          b.emit(text);
-        }
-      }
-      break;
-    case "channel": {
-      // The lexicon has facet#channel, keyed by the Colibri channel rkey, and
-      // channels.ts already carries both that and the name — emitting the raw
-      // Slack id as plain text left a Colibri reader with an opaque `#C…` and
-      // gave the reverse leg nothing to rebuild `<#C…>` from. backfill has
-      // done this since it was written.
-      if (!item.channel_id) break;
-      const ch = channelForSlackId(item.channel_id);
-      if (ch) {
-        b.emit(`#${ch.name}`, {
-          $type: "social.colibri.richtext.facet#channel",
-          channel: channelFacetUri(ch),
-        });
-      } else {
-        b.emit(`#${item.channel_id}`);
-      }
-      break;
-    }
-    case "emoji": {
-      let unicode = "";
-      if (item.unicode) {
-        try {
-          unicode = String.fromCodePoint(
-            ...item.unicode.split("-").map((h) => parseInt(h, 16)),
-          );
-        } catch {}
-      }
-      b.emit(unicode || emojiForName(item.name ?? ""));
-      break;
-    }
-    case "broadcast":
-      if (item.range) b.emit(`@${item.range}`);
-      break;
-  }
 }
 
 // ── mirrored-post lookup ───────────────────────────────────────────────────
@@ -582,7 +348,15 @@ async function publishMessage(
   if (!colibriChannel) return `skip unmapped channel ${fields.channel}`;
 
   const author = fields.user ? await getDisplayName(fields.user, env.SLACK_BOT_TOKEN!) : "unknown";
-  const resolveUser = (id: string) => userNameCache.get(id) ?? id;
+  const walkContext: WalkContext = {
+    nameForUser: (id) => userNameCache.get(id) ?? id,
+    didForUser: didForSlackUser,
+    channelRef: (id) => {
+      const ch = channelForSlackId(id);
+      return ch ? { name: ch.name, uri: channelFacetUri(ch) } : undefined;
+    },
+    emojiFor: emojiForName,
+  };
   const authorDid = fields.user ? didForSlackUser(fields.user) : undefined;
 
   const b = new FacetBuilder();
@@ -600,7 +374,7 @@ async function publishMessage(
     await Promise.all(
       mentioned.map((id) => getDisplayName(id, env.SLACK_BOT_TOKEN!)),
     );
-    walkBlocks(fields.blocks, b, resolveUser);
+    walkBlocks(fields.blocks, b, walkContext);
   } else if (fields.text) {
     b.emit(fields.text);
   }

@@ -25,6 +25,16 @@
 // --live always needs BSKY_HANDLE + BSKY_APP_PASSWORD.
 
 import { readFileSync } from "node:fs";
+import {
+  BOT_DID,
+  channelFacetUri,
+  channelForSlackId,
+  didForSlackUser,
+  emojiForName,
+  FacetBuilder,
+  walkBlocks,
+  type WalkContext,
+} from "@slack-sync/shared";
 import { resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -155,214 +165,25 @@ function colibriChannelRkey(slackChannelId: string): string {
 const enc = new TextEncoder();
 const utf8Len = (s: string) => enc.encode(s).length;
 
-type Facet = {
-  $type: "social.colibri.richtext.facet";
-  index: { byteStart: number; byteEnd: number };
-  features: any[];
+// The blocks walker, the channel table, the DID map and the emoji table all
+// live in @slack-sync/shared — this package had its own copy of every one of
+// them, and each pair drifted. Workspace-specific data still comes from the
+// dumps on disk, layered over the shared defaults through WalkContext.
+const walkContext: WalkContext = {
+  nameForUser: (id) => nameOf.get(id) ?? id,
+  // The dump's slack-to-did.json is the source of truth at backfill time; the
+  // map bundled into the worker is the same table, exported. Prefer the file.
+  didForUser: (id) => SLACK_TO_DID[id] ?? didForSlackUser(id),
+  channelRef: (id) => {
+    const ch = channelForSlackId(id);
+    if (ch) return { name: ch.name, uri: channelFacetUri(ch) };
+    // A channel the shared table does not carry. The dump has its name but
+    // only a pre-migration rkey, and the client resolves an at-uri — so no
+    // facet rather than one it renders as an unresolved chip.
+    return undefined;
+  },
+  emojiFor: (name) => EMOJI_MAP.get(name) ?? emojiForName(name),
 };
-
-class FacetBuilder {
-  parts: string[] = [];
-  facets: Facet[] = [];
-  byteOffset = 0;
-
-  emit(text: string, ...features: any[]) {
-    if (!text) return;
-    const start = this.byteOffset;
-    this.parts.push(text);
-    this.byteOffset += utf8Len(text);
-    if (features.length > 0) {
-      this.facets.push({
-        $type: "social.colibri.richtext.facet",
-        index: { byteStart: start, byteEnd: this.byteOffset },
-        features,
-      });
-    }
-  }
-
-  finish() {
-    return { text: this.parts.join(""), facets: this.facets };
-  }
-}
-
-// ── blocks walker (ported from Mariano's components.js fromData methods) ──
-// Produces Colibri text + facets from Slack's rich_text block tree. Element
-// types we recognise: rich_text_section, rich_text_quote, rich_text_preformatted,
-// rich_text_list (and inside sections: text, link, user, channel, emoji, broadcast).
-
-function walkBlocks(blocks: any[], b: FacetBuilder) {
-  for (let i = 0; i < blocks.length; i++) {
-    const block = blocks[i];
-    if (block?.type !== "rich_text") continue;
-    walkRichTextElements(block.elements ?? [], b);
-    if (i < blocks.length - 1) b.emit("\n");
-  }
-}
-
-function walkRichTextElements(elements: any[], b: FacetBuilder) {
-  for (let i = 0; i < elements.length; i++) {
-    const el = elements[i];
-    switch (el?.type) {
-      case "rich_text_section":
-        walkSection(el.elements ?? [], b);
-        break;
-      case "rich_text_quote":
-        walkQuote(el.elements ?? [], b);
-        break;
-      case "rich_text_preformatted":
-        walkPreformatted(el.elements ?? [], b);
-        break;
-      case "rich_text_list":
-        walkList(el, b);
-        break;
-    }
-    if (i < elements.length - 1) b.emit("\n");
-  }
-}
-
-function walkSection(elements: any[], b: FacetBuilder) {
-  for (const el of elements) walkSectionItem(el, b);
-}
-
-function walkSectionItem(item: any, b: FacetBuilder) {
-  switch (item?.type) {
-    case "text": {
-      const features: any[] = [];
-      const s = item.style ?? {};
-      if (s.bold)
-        features.push({ $type: "social.colibri.richtext.facet#bold" });
-      if (s.italic)
-        features.push({ $type: "social.colibri.richtext.facet#italic" });
-      if (s.strike)
-        features.push({ $type: "social.colibri.richtext.facet#strikethrough" });
-      if (s.code)
-        features.push({ $type: "social.colibri.richtext.facet#code" });
-      b.emit(item.text ?? "", ...features);
-      break;
-    }
-    // A permalink to another Slack message: same url + text shape as a link.
-    case "message_mention":
-    case "link": {
-      const text = item.text || item.url;
-      b.emit(text, {
-        $type: "social.colibri.richtext.facet#link",
-        uri: item.url,
-      });
-      break;
-    }
-    case "user": {
-      const did = SLACK_TO_DID[item.user_id];
-      const name = nameOf.get(item.user_id) ?? item.user_id;
-      if (did)
-        b.emit(`@${name}`, {
-          $type: "social.colibri.richtext.facet#mention",
-          did,
-        });
-      else b.emit(`@${name}`);
-      break;
-    }
-    case "channel": {
-      // KNOWN DIVERGENCE from the worker: this writes the bare rkey, while
-      // facet#channel declares `format: at-uri` and the Colibri client parses
-      // it as one (see channelFacetUri in the worker's channels.ts). Backfill's
-      // map holds pre-migration rkeys on the old owner DID and has no
-      // old->new table, so it cannot build the migrated spelling the client
-      // resolves. One such facet is published; fix needs the shared package.
-      const ch = channelOf.get(item.channel_id);
-      const name = ch?.name ?? item.channel_id;
-      const rkey = MANUAL_CHANNELS[item.channel_id];
-      if (rkey)
-        b.emit(`#${name}`, {
-          $type: "social.colibri.richtext.facet#channel",
-          channel: rkey,
-        });
-      else b.emit(`#${name}`);
-      break;
-    }
-    case "emoji": {
-      // Slack sends `unicode` (codepoint sequence, dash-separated) for standard emoji,
-      // and only the `name` for custom workspace emoji.
-      let unicode = "";
-      if (item.unicode) {
-        try {
-          unicode = String.fromCodePoint(
-            ...item.unicode.split("-").map((h: string) => parseInt(h, 16)),
-          );
-        } catch {}
-      }
-      if (!unicode) unicode = EMOJI_MAP.get(item.name) ?? `:${item.name}:`;
-      b.emit(unicode);
-      break;
-    }
-    case "broadcast":
-      b.emit(`@${item.range}`);
-      break;
-    case "color":
-      b.emit(item.value ?? "");
-      break;
-  }
-}
-
-// Colibri renders a #quote facet as a <blockquote>; the text stays clean.
-// This used to synthesise "> " prefixes and drop the inner facets.
-function walkQuote(elements: any[], b: FacetBuilder) {
-  const inner = new FacetBuilder();
-  walkSection(elements, inner);
-  spliceInto(b, inner, [{ $type: "social.colibri.richtext.facet#quote" }]);
-}
-
-// Append a sub-builder's text to `b`, shifting its facets, and cover the whole
-// span with one block-level feature.
-function spliceInto(b: FacetBuilder, sub: FacetBuilder, features: any[]) {
-  const { text, facets } = sub.finish();
-  if (!text) return;
-  const start = b.byteOffset;
-  b.parts.push(text);
-  b.byteOffset += utf8Len(text);
-  b.facets.push({
-    $type: "social.colibri.richtext.facet",
-    index: { byteStart: start, byteEnd: b.byteOffset },
-    features,
-  });
-  for (const f of facets)
-    b.facets.push({
-      ...f,
-      index: { byteStart: start + f.index.byteStart, byteEnd: start + f.index.byteEnd },
-    });
-}
-
-// Slack's preformatted blocks carry no language.
-function walkPreformatted(elements: any[], b: FacetBuilder) {
-  const pre = new FacetBuilder();
-  walkSection(elements, pre);
-  spliceInto(b, pre, [{ $type: "social.colibri.richtext.facet#codeblock" }]);
-}
-
-// One #list facet per item line, no bullet in the text — the client draws the
-// marker. Depth is the facet's `indent` (lexicon rev 5) with a fallback to the
-// leading whitespace before the item, so write both.
-function walkList(list: any, b: FacetBuilder) {
-  const ordered = list.style === "ordered";
-  const indent = Math.max(0, list.indent ?? 0);
-  const items = list.elements ?? [];
-  for (let i = 0; i < items.length; i++) {
-    if (indent > 0) b.emit("  ".repeat(indent));
-    const start = b.byteOffset;
-    const child = items[i];
-    if (child?.elements) walkSection(child.elements, b);
-    if (b.byteOffset > start)
-      b.facets.push({
-        $type: "social.colibri.richtext.facet",
-        index: { byteStart: start, byteEnd: b.byteOffset },
-        features: [
-          indent > 0
-            ? { $type: "social.colibri.richtext.facet#list", ordered, indent }
-            : { $type: "social.colibri.richtext.facet#list", ordered },
-        ],
-      });
-    if (i < items.length - 1) b.emit("\n");
-  }
-}
 
 // ── message builder ─────────────────────────────────────────────────────────
 
@@ -380,7 +201,7 @@ function buildMessage(m: any, channelRkey: string, parentRkey?: string) {
   b.emit(": ");
 
   if (Array.isArray(m.blocks) && m.blocks.some((blk: any) => blk?.type === "rich_text")) {
-    walkBlocks(m.blocks, b);
+    walkBlocks(m.blocks, b, walkContext);
   } else {
     // Legacy fallback: plain text + URL regex link facets + entity decoding.
     legacyTextFallback(m.text || "", b);
@@ -570,7 +391,11 @@ if (allWithReactions.length > 0) {
   console.log("");
   console.log("REACTIONS:");
   for (const { m, targetRkey } of allWithReactions) {
-    for (const r of reactionsFor(m, targetRkey, did)) {
+    // The preview runs before the login that defines `did`; the bot's identity
+    // is fixed, so use it. Reading `did` here threw
+    // "Cannot access 'did' before initialization" on any day with reactions —
+    // i.e. --dry-run was broken for most days.
+    for (const r of reactionsFor(m, targetRkey, BOT_DID)) {
       console.log(
         `  ${m.ts}  target=${targetRkey}  rkey=${r.rkey}  ${r.emoji} (:${r.name}: ×${r.userCount})`,
       );
@@ -608,6 +433,11 @@ const sessRes = await fetch(`${PDS}/xrpc/com.atproto.server.createSession`, {
 if (!sessRes.ok) throw new Error(`login: ${await sessRes.text()}`);
 const sess: any = await sessRes.json();
 const did = sess.did as string;
+// The preview above assumed BOT_DID; publishing as anyone else would write the
+// community's history into the wrong repo.
+if (did !== BOT_DID) {
+  throw new Error(`logged in as ${did}, expected ${BOT_DID} — check BSKY_HANDLE`);
+}
 const auth = {
   "Content-Type": "application/json",
   Authorization: `Bearer ${sess.accessJwt}`,

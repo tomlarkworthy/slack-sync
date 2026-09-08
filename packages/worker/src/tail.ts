@@ -8,7 +8,7 @@
 // See plan/colibri-to-slack-bridge.md (observation 4, Cost on Cloudflare).
 
 import { BOT_DID } from "./atproto";
-import { channelForRef } from "./channels";
+import { channelForRef } from "@slack-sync/shared";
 import { isJetstreamCommit, type JetstreamCommit, type JetstreamEvent } from "./reverse";
 
 export const JETSTREAM_URL = "wss://jetstream2.us-east.bsky.network/subscribe";

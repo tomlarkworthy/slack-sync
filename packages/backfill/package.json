@@ -6,5 +6,8 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "bun src/index.ts"
+  },
+  "dependencies": {
+    "@slack-sync/shared": "workspace:*"
   }
 }

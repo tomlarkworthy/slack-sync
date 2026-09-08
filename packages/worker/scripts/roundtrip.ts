@@ -5,10 +5,10 @@
 // that checks that claim.
 //
 //   bun scripts/roundtrip.ts [--detail]
-import { canonMrkdwn, derive } from "../test/support/compare";
+import { canonMrkdwn, derive } from "@slack-sync/shared";
 import { renderFacets } from "../src/mrkdwn";
-import { SLACK_USER_DID_MAP } from "../src/slack-to-did";
-import { channelForRef } from "../src/channels";
+import { SLACK_USER_DID_MAP } from "@slack-sync/shared";
+import { channelForRef } from "@slack-sync/shared";
 
 const PDS = "https://jellybaby.us-east.host.bsky.network";
 const BOT_DID = "did:plc:4gcxakknd6hxtnhf33miwsob";

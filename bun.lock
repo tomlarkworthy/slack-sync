@@ -12,6 +12,10 @@
       "name": "@slack-sync/backfill",
       "version": "0.0.1",
     },
+    "packages/shared": {
+      "name": "@slack-sync/shared",
+      "version": "0.0.1",
+    },
     "packages/worker": {
       "name": "@slack-sync/worker",
       "version": "0.0.1",
@@ -137,6 +141,8 @@
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.9", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.0.3", "@jridgewell/sourcemap-codec": "^1.4.10" } }, "sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ=="],
 
     "@slack-sync/backfill": ["@slack-sync/backfill@workspace:packages/backfill"],
+
+    "@slack-sync/shared": ["@slack-sync/shared@workspace:packages/shared"],
 
     "@slack-sync/worker": ["@slack-sync/worker@workspace:packages/worker"],
 

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import corpus from "./fixtures/slack-corpus.json";
-import { canonMrkdwn, derive, lostWords } from "./support/compare";
+import { canonMrkdwn, derive, lostWords } from "@slack-sync/shared";
 import { renderFacets } from "../src/mrkdwn";
-import { SLACK_USER_DID_MAP } from "../src/slack-to-did";
-import { channelForRef } from "../src/channels";
+import { SLACK_USER_DID_MAP } from "@slack-sync/shared";
+import { channelForRef } from "@slack-sync/shared";
 
 // A frozen covering subset of the live slackRaw archive: one real message per
 // distinct combination of rich-text element types, rebuilt with

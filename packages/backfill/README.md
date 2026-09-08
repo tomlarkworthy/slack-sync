@@ -2,7 +2,26 @@
 
 CLI for the historical seed. Reads a day's worth of Slack history JSON and publishes the messages, replies, and reactions to a bot's atproto repo as `social.colibri.message` + `social.colibri.reaction` records.
 
-This is the **one-time-then-occasional** path. The real-time forward bridge is `@slack-sync/worker`. Both should share the lexicon / blocks-walker code once the worker lands; for now this package is self-contained.
+This is the **one-time-then-occasional** path. The real-time forward bridge is `@slack-sync/worker`. Both walk Slack blocks with the one implementation in `@slack-sync/shared`; this package supplies the dump-specific names, DIDs and emoji through `WalkContext`.
+
+**Run it from the repository root** — the dump and mapping paths are relative to it.
+
+Before a run, check the walker against the input it will be given:
+
+```sh
+bun packages/backfill/scripts/dump-fidelity.ts
+```
+
+It walks every eligible message in the dumps and compares against Slack's own
+plaintext, and exits nonzero if any rich-text element type has no case in the
+walker. As of 2026-09-08: 49,532 messages with `rich_text` blocks, 99 (0.20%)
+differing — all comparator artifacts (custom emoji shortcodes splitting a word,
+Slack autolinking a bare domain its block tree carries as plain text, ordinals
+inside a quote) — and no unhandled element types.
+
+A `--dry-run` (the default) prints the messages, channels and reactions it would
+publish. `--live` logs in and refuses to publish unless the session DID is the
+bridge bot.
 
 ## Inputs
 

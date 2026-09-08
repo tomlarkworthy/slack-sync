@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parseAtUri, slackTsFromTid, tidFromSlackTs } from "../src/atproto";
-import { CHANNEL_MAP, channelForRef, COMMUNITY_DID, OLD_OWNER_DID } from "../src/channels";
-import { emojiForName, emojiNameFor } from "../src/emoji";
+import { CHANNEL_MAP, channelForRef, COMMUNITY_DID, OLD_OWNER_DID } from "@slack-sync/shared";
+import { emojiForName, emojiNameFor } from "@slack-sync/shared";
 import { isJetstreamCommit } from "../src/reverse";
 
 describe("tid <-> slack ts", () => {

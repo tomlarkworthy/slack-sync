@@ -24,11 +24,11 @@ import {
   slackTsFromTid,
   type AtprotoEnv,
 } from "./atproto";
-import { channelForRef, channelForSlackId } from "./channels";
-import { emojiNameFor } from "./emoji";
+import { channelForRef, channelForSlackId } from "@slack-sync/shared";
+import { emojiNameFor } from "@slack-sync/shared";
 import { logEvent } from "./eventlog";
 import { renderFacets, escapeMrkdwn, type ColibriFacet } from "./mrkdwn";
-import { SLACK_USER_DID_MAP } from "./slack-to-did";
+import { SLACK_USER_DID_MAP } from "@slack-sync/shared";
 
 export const MIRROR_COLLECTION = "com.feelingofcomputing.bridge.slackMirror";
 export const MIRROR_EVENT_TYPE = "colibri_mirror"; // Slack message metadata event_type

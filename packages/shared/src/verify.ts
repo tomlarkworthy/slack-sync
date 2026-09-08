@@ -3,10 +3,17 @@
 // Slack sends every message twice: as `blocks` (the tree we walk) and as
 // `text` (Slack's own plaintext of the same message). The second is an
 // independent reference — content in it and not in ours is content we dropped.
-// scripts/fidelity.ts, scripts/roundtrip.ts and test/corpus.test.ts all use
-// this, so the comparison is defined once.
-import { walkBlocks } from "../../src/index";
-import { emojiNameFor } from "../../src/emoji";
+// The worker's corpus test, its fidelity/roundtrip scripts and backfill's
+// dump check all use this, so the comparison is defined once.
+import {
+  channelFacetUri,
+  channelForSlackId,
+  didForSlackUser,
+  emojiForName,
+  emojiNameFor,
+  walkBlocks,
+  type WalkContext,
+} from "./index";
 
 const enc = new TextEncoder();
 
@@ -27,10 +34,25 @@ export class Builder {
   }
 }
 
+/**
+ * The production walk context, with only display-name lookup stubbed — the DID
+ * map, channel table and emoji table are the ones the worker ships, so the
+ * corpus checks exercise the real mappings.
+ */
+export const walkContext = (nameForUser: (id: string) => string = () => "M"): WalkContext => ({
+  nameForUser,
+  didForUser: didForSlackUser,
+  channelRef: (id) => {
+    const ch = channelForSlackId(id);
+    return ch ? { name: ch.name, uri: channelFacetUri(ch) } : undefined;
+  },
+  emojiFor: emojiForName,
+});
+
 /** Blocks -> Colibri text + facets, with no author byline in the way. */
-export function derive(blocks: unknown[], resolveUser: (id: string) => string = () => "M") {
+export function derive(blocks: unknown[], nameForUser: (id: string) => string = () => "M") {
   const b = new Builder();
-  walkBlocks(blocks as any, b as any, resolveUser);
+  walkBlocks(blocks as any, b as any, walkContext(nameForUser));
   return b.finish();
 }
 

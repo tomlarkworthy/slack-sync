@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderFacets, escapeMrkdwn } from "../src/mrkdwn";
-import { CHANNELS, channelFacetUri, channelForRef } from "../src/channels";
+import { CHANNELS, channelFacetUri, channelForRef } from "@slack-sync/shared";
 
 const F = "social.colibri.richtext.facet";
 const opts = { slackUserForDid: (did: string) => (did === "did:plc:tom" ? "U02E4DAQGSZ" : undefined) };

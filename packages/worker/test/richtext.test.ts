@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { walkBlocks } from "../src/index";
-import { channelForRef } from "../src/channels";
+import { walkBlocks } from "@slack-sync/shared";
+import { walkContext } from "@slack-sync/shared";
+import { channelForRef } from "@slack-sync/shared";
 
 // Minimal stand-in for the builder the message path seeds with the byline.
 class B {
@@ -26,7 +27,7 @@ class B {
 const F = "social.colibri.richtext.facet";
 const render = (blocks: any[]) => {
   const b = new B();
-  walkBlocks(blocks as any, b as any, (id) => id);
+  walkBlocks(blocks as any, b as any, walkContext((id) => id));
   return b.finish();
 };
 const section = (...text: string[]) => ({

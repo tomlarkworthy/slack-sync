@@ -13,5 +13,8 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260101.0",
     "wrangler": "^3.90.0"
+  },
+  "dependencies": {
+    "@slack-sync/shared": "workspace:*"
   }
 }

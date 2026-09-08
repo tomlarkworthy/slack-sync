@@ -18,7 +18,7 @@
 // selector (blocks containing a rich_text_list).
 // WORKER_URL defaults to the deployed worker.
 
-import { derive, lostFrom, lostWords } from "../test/support/compare";
+import { derive, lostFrom, lostWords } from "@slack-sync/shared";
 import { tidFromSlackTs } from "../src/atproto";
 
 const WORKER_URL = process.env.WORKER_URL ?? "https://slack-sync-bridge.endpointservices.workers.dev";
