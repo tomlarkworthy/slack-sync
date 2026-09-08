@@ -62,6 +62,7 @@ const { values } = parseArgs({
     live: { type: "boolean", default: false },
     "diff-published": { type: "boolean", default: false },
     emit: { type: "string" },
+    "skip-unmapped-channels": { type: "boolean", default: false },
     "delay-ms": { type: "string", default: "200" },
   },
 });
@@ -76,6 +77,7 @@ const srcDir = values["src-dir"]!;
 const limit = parseInt(values.limit!, 10);
 const dryRun = !values.live;
 const emitPath = values.emit;
+const skipUnmapped = values["skip-unmapped-channels"]!;
 const diffPublished = values["diff-published"]! || !!emitPath;
 const delayMs = parseInt(values["delay-ms"]!, 10);
 
@@ -285,7 +287,7 @@ try {
   repliesRaw = JSON.parse(readFileSync(`${dayPath}.replies.json`, "utf-8"));
 } catch {}
 
-const tops = topLevelRaw
+let tops = topLevelRaw
   .filter(
     (m) =>
       m.type === "message" &&
@@ -296,7 +298,7 @@ const tops = topLevelRaw
   .sort((a, b) => parseFloat(a.ts) - parseFloat(b.ts))
   .slice(0, limit);
 
-const replies = repliesRaw
+let replies = repliesRaw
   .filter(
     (m) =>
       m.type === "message" &&
@@ -323,9 +325,25 @@ for (const cid of slackChannelsTouched) {
     channelSrc[cid] = "derived";
   }
 }
-const allManual = [...slackChannelsTouched].every(
+let allManual = [...slackChannelsTouched].every(
   (cid) => channelSrc[cid] === "manual",
 );
+// A channel with no entry in slack-to-colibri-channel.json has no Colibri
+// channel yet. Lazy-create writes it into the *bot's* repo, but the community
+// lives on its own DID and the facet at-uri points there — so the chip renders
+// unresolved, the bug we just repaired. Until the owner creates the channel,
+// drop its messages rather than publish them somewhere they cannot be read.
+if (skipUnmapped && !allManual) {
+  const dropped = [...slackChannelsTouched].filter((cid) => channelSrc[cid] !== "manual");
+  for (const cid of dropped) {
+    console.log(`  SKIPPING #${channelOf.get(cid)?.name ?? cid}: no Colibri channel`);
+    slackChannelsTouched.delete(cid);
+  }
+  const keep = (m: any) => !dropped.includes(m.channel_id);
+  tops = tops.filter(keep);
+  replies = replies.filter(keep);
+  allManual = true;
+}
 
 // ── preview ─────────────────────────────────────────────────────────────────
 console.log(`=== ${srcDay} ===`);
@@ -389,12 +407,17 @@ if (allWithReactions.length > 0) {
   }
 }
 
-// ── diff against what is already published ─────────────────────────────────
-// A re-run rewrites every record for the day. --diff-published says which ones
-// would actually change, so the blast radius of a repair run is known before
-// it writes: the derivation has moved since the first backfill (block facets
-// for lists and quotes, no bare-rkey channel facet) and only some records were
-// touched by it.
+// ── the records a live run would write ─────────────────────────────────────
+// Exactly what --live puts, minus the channel/category bootstrap: top-level
+// messages, replies, reactions. --emit writes them as JSONL for
+// scripts/post-records.ts, which publishes them through the worker — the bot's
+// app password exists only as a Worker secret, so the CLI derives and the
+// worker writes.
+//
+// --diff-published narrows that to the records that would actually change. A
+// re-run rewrites every record for the day, so this is how the blast radius of
+// a repair is known before it writes; on a day that was never backfilled every
+// record is new and it reports them all.
 if (diffPublished) {
   const APPVIEW_PDS = "https://jellybaby.us-east.host.bsky.network";
   // The PDS returns CBOR-decoded maps in canonical key order, which is not the
@@ -410,53 +433,55 @@ if (diffPublished) {
       .flatMap((f: any) => (f.features ?? []).map((x: any) => String(x.$type).split("#")[1]))
       .sort()
       .join(",");
-  const built: { rkey: string; rec: any }[] = [
+  const toPut: { collection: string; rkey: string; record: any }[] = [
     ...tops.map((m) => buildMessage(m, channelMap[m.channel_id])),
     ...replies.map((m) => buildMessage(m, channelMap[m.channel_id], tidFromSlackTs(m.thread_ts!))),
-  ].map((b) => ({ rkey: b.rkey, rec: b.record }));
-  let same = 0;
+  ].map((b) => ({ collection: "social.colibri.message", rkey: b.rkey, record: b.record }));
+  for (const { m, targetRkey } of allWithReactions)
+    for (const r of reactionsFor(m, targetRkey, BOT_DID))
+      toPut.push({ collection: "social.colibri.reaction", rkey: r.rkey, record: r.record });
+
+  const emit: typeof toPut = [];
+  let same = 0, fresh = 0;
   const changed: string[] = [];
-  const toEmit: { rkey: string; record: any }[] = [];
-  for (const { rkey, rec } of built) {
+  for (const item of toPut) {
+    const { collection, rkey, record } = item;
     const u = new URL(`${APPVIEW_PDS}/xrpc/com.atproto.repo.getRecord`);
     u.searchParams.set("repo", BOT_DID);
-    u.searchParams.set("collection", "social.colibri.message");
+    u.searchParams.set("collection", collection);
     u.searchParams.set("rkey", rkey);
     const r = await fetch(u);
     if (!r.ok) {
-      changed.push(`  ${rkey}  NEW (not published)`);
+      fresh++;
+      emit.push(item);
+      changed.push(`  ${rkey}  NEW  ${collection.split(".").pop()}`);
       continue;
     }
     const cur = ((await r.json()) as any).value;
-    const dText = cur.text !== rec.text;
-    // Compare the whole facet array, not just the shape: a #channel facet
-    // republished as an at-uri instead of a bare rkey keeps its $type.
-    const dShape =
-      JSON.stringify(stable(cur.facets ?? [])) !== JSON.stringify(stable(rec.facets ?? []));
-    if (!dText && !dShape) {
+    const dText = cur.text !== record.text;
+    const dRest = JSON.stringify(stable(cur)) !== JSON.stringify(stable(record));
+    if (!dRest) {
       same++;
       continue;
     }
-    toEmit.push({ rkey, record: rec });
+    emit.push(item);
     changed.push(
-      `  ${rkey}  ${dText ? "text" : "    "} ${dShape ? "facets" : "      "}\n` +
-        (dText ? `    - ${JSON.stringify(cur.text?.slice(0, 160))}\n    + ${JSON.stringify(rec.text?.slice(0, 160))}\n` : "") +
-        (dShape
-          ? shapeOf(cur.facets) !== shapeOf(rec.facets)
-            ? `    - [${shapeOf(cur.facets)}]\n    + [${shapeOf(rec.facets)}]\n`
-            : `    - ${JSON.stringify(cur.facets)}\n    + ${JSON.stringify(rec.facets)}\n`
-          : ""),
+      `  ${rkey}  ${dText ? "text" : "    "}\n` +
+        (dText ? `    - ${JSON.stringify(cur.text?.slice(0, 160))}\n    + ${JSON.stringify(record.text?.slice(0, 160))}\n` : "") +
+        (shapeOf(cur.facets) !== shapeOf(record.facets)
+          ? `    - [${shapeOf(cur.facets)}]\n    + [${shapeOf(record.facets)}]\n`
+          : `    - ${JSON.stringify(cur)}\n    + ${JSON.stringify(record)}\n`),
     );
   }
   console.log("");
-  console.log(`DIFF vs PUBLISHED: ${changed.length} would change, ${same} unchanged, of ${built.length}`);
+  console.log(
+    `DIFF vs PUBLISHED: ${changed.length} would change (${fresh} new), ${same} unchanged, of ${toPut.length}`,
+  );
   for (const line of changed) console.log(line);
-  // --emit appends the changed records as JSONL for scripts/post-repair.ts,
-  // which publishes them through the worker's /repair/messages. The bot's app
-  // password lives only as a Worker secret, so the CLI derives and the worker
-  // writes.
-  if (emitPath && toEmit.length)
-    appendFileSync(emitPath, toEmit.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  // Emit only what differs: a re-run of a backfilled day is then a no-op, and
+  // a day never backfilled emits all of it.
+  if (emitPath && emit.length)
+    appendFileSync(emitPath, emit.map((e) => JSON.stringify(e)).join("\n") + "\n");
 }
 
 if (dryRun) {

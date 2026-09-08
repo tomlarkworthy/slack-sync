@@ -30,6 +30,39 @@ compared by value: the PDS returns CBOR-decoded maps in canonical key order,
 which is not the order the walker builds them in, and comparing the serialised
 form makes every record look changed.
 
+## Running without the bot's app password
+
+`--live` writes directly and needs `BSKY_HANDLE` + `BSKY_APP_PASSWORD`. The
+bot's app password lives only as a Cloudflare Worker secret and a secret cannot
+be read back, so the usable path is: the CLI derives, the worker writes.
+
+```sh
+# preview a range (skips days the dump does not have)
+sh vendor/slack-sync/packages/backfill/scripts/run-days.sh 2026/04/05 2026/05/04 --diff-published
+
+# derive the records that differ from what is published
+sh …/run-days.sh 2026/04/05 2026/05/04 --skip-unmapped-channels --emit /tmp/out.jsonl
+
+# publish them through the worker
+INJECT_TOKEN=… bun packages/backfill/scripts/post-records.ts /tmp/out.jsonl
+```
+
+`--emit` writes exactly what `--live` would put — top-level messages, replies
+and reactions — minus the records already published in that form, so a re-run of
+a converged day emits nothing. `post-records.ts` posts to `POST
+/backfill/records`; `--repair-only` sends to `POST /repair/messages` instead,
+which refuses an rkey that is not already published, so a run meant to fix
+existing records cannot add any.
+
+`--skip-unmapped-channels` drops messages in Slack channels that have no entry
+in `slack-to-colibri-channel.json`. Lazy-create would write the channel into the
+*bot's* repo while the facet at-uri points at the community's own DID, so the
+chip renders unresolved — the defect the 2026-09-08 repair fixed. Two channels
+are in this state: **#of-logic-programming** and **#reading-together** (8
+messages in 2026/04). Publishing them needs the community owner to create the
+channels in Colibri and add them to `slack-to-colibri-channel.json` and
+`packages/shared/src/channels.ts`.
+
 ## Repairing already-backfilled records
 
 `scripts/repair-days.sh` re-derives the days the first backfill covered:
@@ -37,27 +70,23 @@ form makes every record look changed.
 ```sh
 sh vendor/slack-sync/packages/backfill/scripts/repair-days.sh                    # preview
 sh …/repair-days.sh --emit /tmp/repair.jsonl                                     # derive
-INJECT_TOKEN=… bun packages/backfill/scripts/post-repair.ts /tmp/repair.jsonl    # write
+INJECT_TOKEN=… bun packages/backfill/scripts/post-records.ts /tmp/repair.jsonl   # write
 ```
 
-`--live` writes directly and needs `BSKY_HANDLE` + `BSKY_APP_PASSWORD`. The bot's
-app password lives only as a Cloudflare Worker secret, so the second form is the
-one that works without it: the CLI derives, `--emit` writes the changed records
-as JSONL, and the worker publishes them through `POST /repair/messages` using its
-own session. That endpoint is update-only — an rkey that is not already published
-is refused — so a repair cannot add content.
+`scripts/coverage.ts` prints the published archive by month, flags any record
+still carrying literal `• ` / `> ` markers, and derives that day list — the
+messages with no archived Slack envelope, which `/slack/replay` cannot reach.
 
-The day list is the days that already have published records
-(`scripts/coverage.ts` derives it, by finding the published messages with no
-archived Slack envelope). `2026/05/01`, `05/03` and `05/04` have dumps but were
-never backfilled — running them would add 31 new messages rather than repair
-anything, so they are not in the list.
+Run 2026-09-08:
 
-Run 2026-09-08: **28 of 269 records changed** across 10 of the 25 days — lists
-and quotes published as literal `• ` and `> ` text before the block facets
-landed, a `#channel` facet published as a bare rkey, and links Slack autolinked
-that the old walker dropped from the text. 27 written, 1 already correct by the
-time the batch ran (the canary). The sweep now reports 0 of 269 changed.
+| | |
+|---|---|
+| 28 of 269 message records | lists and quotes published as literal `• ` and `> ` text before the block facets landed, a `#channel` facet published as a bare rkey, links Slack autolinked that the old walker dropped |
+| 157 of 269 reaction records | missing `parent`, the at-uri the Colibri lexicon requires — they carried only the pre-lexicon `targetMessage`. Found by widening the diff from text+facets to the whole record |
+| 1 message record | missing `$type` |
+
+Then 2026/04/05–2026/05/04 was backfilled: 272 messages and 113 reactions,
+381 created, 4 updated. Both ranges now report 0 changed.
 
 ## Inputs
 

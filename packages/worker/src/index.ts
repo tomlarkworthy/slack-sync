@@ -542,6 +542,17 @@ export function isSelfSlackEvent(ev: SlackEvent | undefined): boolean {
 }
 
 // ── entry ──────────────────────────────────────────────────────────────────
+// A PDS returns records CBOR-decoded, so their keys come back in canonical
+// order, not the order we built them in. Compare records by value or every one
+// of them looks changed.
+function stableKeys(v: unknown): unknown {
+  return Array.isArray(v)
+    ? v.map(stableKeys)
+    : v && typeof v === "object"
+      ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, stableKeys((v as Record<string, unknown>)[k])]))
+      : v;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -660,15 +671,6 @@ export default {
       if (!items.every((i) => /^[2-7a-z]{13}$/.test(i?.rkey ?? "") && i?.record && typeof i.record === "object")) {
         return new Response("expected [{rkey, record}] with 13-char tid rkeys", { status: 400 });
       }
-      // Canonical key order: the PDS returns CBOR-decoded maps sorted, which is
-      // not the order the walker builds them in. Compare by value or every
-      // record looks changed and the repair rewrites the whole day.
-      const stable = (v: unknown): unknown =>
-        Array.isArray(v)
-          ? v.map(stable)
-          : v && typeof v === "object"
-            ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, stable((v as Record<string, unknown>)[k])]))
-            : v;
       const sess = await getBskySession(env);
       const result = { written: [] as string[], unchanged: [] as string[], absent: [] as string[] };
       for (const { rkey, record } of items) {
@@ -677,12 +679,61 @@ export default {
           result.absent.push(rkey!);
           continue;
         }
-        if (JSON.stringify(stable(cur.value)) === JSON.stringify(stable(record))) {
+        if (JSON.stringify(stableKeys(cur.value)) === JSON.stringify(stableKeys(record))) {
           result.unchanged.push(rkey!);
           continue;
         }
         await putRecord(sess, "social.colibri.message", rkey!, record);
         result.written.push(rkey!);
+      }
+      return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+    }
+
+    // Publish records the backfill CLI derived from the history dumps, using
+    // the worker's session — same reason as /repair/messages, but for days that
+    // were never backfilled, so records are created as well as updated. The
+    // capability is not new: a token holder can already publish arbitrary
+    // messages by posting a crafted envelope to /slack/replay. Collections are
+    // fixed, and a record whose $type disagrees with its collection is refused.
+    if (request.method === "POST" && url.pathname === "/backfill/records") {
+      if (!env.INJECT_TOKEN || request.headers.get("Authorization") !== `Bearer ${env.INJECT_TOKEN}`) {
+        return new Response("unauthorized", { status: 401 });
+      }
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return new Response("invalid json", { status: 400 });
+      }
+      const items = (Array.isArray(body) ? body : [body]) as Array<{
+        collection?: string;
+        rkey?: string;
+        record?: Record<string, unknown>;
+      }>;
+      if (items.length > 50) return new Response("at most 50 records per request", { status: 400 });
+      const ALLOWED = new Set(["social.colibri.message", "social.colibri.reaction"]);
+      const wellFormed = (i: (typeof items)[number]) =>
+        ALLOWED.has(i?.collection ?? "") &&
+        /^[2-7a-z]{13}$/.test(i?.rkey ?? "") &&
+        i?.record &&
+        typeof i.record === "object" &&
+        i.record.$type === i.collection;
+      if (!items.every(wellFormed)) {
+        return new Response(
+          `expected [{collection, rkey, record}] with collection in ${[...ALLOWED].join("|")}, a 13-char tid rkey, and record.$type matching the collection`,
+          { status: 400 },
+        );
+      }
+      const sess = await getBskySession(env);
+      const result = { created: [] as string[], updated: [] as string[], unchanged: [] as string[] };
+      for (const { collection, rkey, record } of items) {
+        const cur = await getRecord<Record<string, unknown>>(BOT_DID, collection!, rkey!);
+        if (cur && JSON.stringify(stableKeys(cur.value)) === JSON.stringify(stableKeys(record))) {
+          result.unchanged.push(rkey!);
+          continue;
+        }
+        await putRecord(sess, collection!, rkey!, record);
+        (cur ? result.updated : result.created).push(rkey!);
       }
       return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
     }
