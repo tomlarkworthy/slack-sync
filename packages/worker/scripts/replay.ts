@@ -84,15 +84,29 @@ if (staleFilter || reformatFilter) {
   console.log(`read ${published.size} published messages`);
 }
 
+// publishMessage truncates the text at this length and drops the facets past
+// it. A record sitting on the cap is missing content by design, not by a
+// walker bug: every filter below would see a fresh derivation doing better and
+// select it on every run, and the worker would cap it again. Not repairable.
+const TEXT_CAP = 2048;
+const atCap = (rec: { text?: string }) => (rec.text ?? "").length >= TEXT_CAP;
+
 // Stale = the published record drops words of Slack's plaintext that a fresh
-// derivation would keep. The second half matters: a record truncated at the
-// 2048-char cap, or one where Slack autolinked a bare domain its own block
-// tree carries as plain text, loses words no replay can restore — re-POSTing
-// those forever would be churn.
+// derivation would keep. The second half matters: a record where Slack
+// autolinked a bare domain that its own block tree carries as plain text loses
+// words no replay can restore — re-POSTing those forever would be churn.
+function isStale(inner: any): boolean {
+  const rec = published.get(tidFromSlackTs(inner.ts));
+  if (!rec || atCap(rec)) return false;
+  const now = lostFrom(rec.text ?? "", rec.facets, inner.text ?? "").length;
+  if (now === 0) return false;
+  return lostWords(inner.blocks, inner.text ?? "").length < now;
+}
+
 // A structural change rather than a loss: the published record does not carry
 // the block-level facets the current walker produces (quote, list, codeblock,
 // channel — where we used to synthesise "> " and "• " as literal text). Word
-// counts are unchanged, so --stale cannot see these. Compare only block
+// counts are unchanged, so isStale cannot see these. Compare only the block
 // features: the byline adds a #mention the block-only derivation has not got.
 const BLOCK_FEATURES = new Set(["quote", "list", "codeblock", "channel"]);
 const blockShape = (facets: any[] | undefined): string =>
@@ -104,16 +118,8 @@ const blockShape = (facets: any[] | undefined): string =>
 
 function needsReformat(inner: any): boolean {
   const rec = published.get(tidFromSlackTs(inner.ts));
-  if (!rec) return false;
+  if (!rec || atCap(rec)) return false;
   return blockShape(rec.facets) !== blockShape(derive(inner.blocks).facets);
-}
-
-function isStale(inner: any): boolean {
-  const rec = published.get(tidFromSlackTs(inner.ts));
-  if (!rec) return false; // never published (unmapped channel, skipped subtype)
-  const now = lostFrom(rec.text ?? "", rec.facets, inner.text ?? "").length;
-  if (now === 0) return false;
-  return lostWords(inner.blocks, inner.text ?? "").length < now;
 }
 
 // Newest envelope per message, plus the messages deleted afterwards. The key
@@ -126,6 +132,10 @@ const PUBLISHABLE = new Set([undefined, "file_share", "message_changed"]);
 const newest = new Map<string, Raw>();
 const deleted = new Set<string>();
 let scanned = 0;
+// Pass 1: the newest envelope per message. The filter runs in pass 2, on that
+// envelope alone — testing every envelope would select a message because some
+// superseded edit of it looks wrong, then replay the current one, which is
+// already correct, forever.
 for await (const v of slackRaw()) {
   scanned++;
   if (v.eventType !== "message") continue;
@@ -137,6 +147,14 @@ for await (const v of slackRaw()) {
   if (!PUBLISHABLE.has(ev.subtype)) continue;
   const inner = ev.message ?? ev;
   const key = `${v.slackChannelId}/${inner.ts}`;
+  const prev = newest.get(key);
+  if (!prev || (v.capturedAt ?? "") > (prev.capturedAt ?? "")) newest.set(key, v);
+}
+
+// Pass 2: select.
+for (const [key, v] of [...newest]) {
+  const ev = v.payload?.event ?? {};
+  const inner = ev.message ?? ev;
   const match = tsFilter.size
     ? tsFilter.has(inner.ts ?? "")
     : staleFilter || reformatFilter
@@ -144,9 +162,7 @@ for await (const v of slackRaw()) {
         typeof inner.text === "string" &&
         ((staleFilter && isStale(inner)) || (reformatFilter && needsReformat(inner)))
       : containsList(inner.blocks);
-  if (!match) continue;
-  const prev = newest.get(key);
-  if (!prev || (v.capturedAt ?? "") > (prev.capturedAt ?? "")) newest.set(key, v);
+  if (!match) newest.delete(key);
 }
 
 const picked = [...newest].filter(([k]) => !deleted.has(k)).map(([, v]) => v);
