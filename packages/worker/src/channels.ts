@@ -52,6 +52,15 @@ export function channelForRef(ref: string | undefined): Channel | undefined {
   return BY_REF.get(ref);
 }
 
+// The at-uri spelling a facet#channel must carry. Colibri's lexicon says
+// `format: at-uri` (published rev 4) while describing the field as "the record
+// key"; the client settles it — ChannelFacet does AtURI.parseAtURI(channel).did
+// and compares it with the community, so a bare rkey renders unresolved. Use
+// the migrated spelling, which is what the Colibri client itself writes.
+export function channelFacetUri(c: Channel): string {
+  return `at://${COMMUNITY_DID}/social.colibri.channel/${c.newRkey}`;
+}
+
 const BY_SLACK = new Map(CHANNELS.map((c) => [c.slack, c]));
 
 // A Slack channel id -> the channel. Used where only the Slack side is known,

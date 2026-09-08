@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderFacets, escapeMrkdwn } from "../src/mrkdwn";
+import { CHANNELS, channelFacetUri, channelForRef } from "../src/channels";
 
 const F = "social.colibri.richtext.facet";
 const opts = { slackUserForDid: (did: string) => (did === "did:plc:tom" ? "U02E4DAQGSZ" : undefined) };
@@ -71,7 +72,7 @@ describe("renderFacets", () => {
 describe("channel facets", () => {
   const withChannel = {
     ...opts,
-    slackChannelForRkey: (rkey: string) => (rkey === "3mn5tk5v4yr2s" ? "C03RR0W5DGC" : undefined),
+    slackChannelForRkey: (ref: string) => channelForRef(ref)?.slack,
   };
   test("a channel facet becomes <#C…>; an unmapped rkey stays text", () => {
     const t = "see #devlog-together and #elsewhere";
@@ -79,7 +80,8 @@ describe("channel facets", () => {
       index: { byteStart: t.indexOf(from), byteEnd: t.indexOf(from) + from.length },
       features: [{ $type: `${F}#channel`, channel: rkey }],
     });
-    expect(renderFacets(t, [f("#devlog-together", "3mn5tk5v4yr2s"), f("#elsewhere", "nope")], withChannel))
+    const uri = channelFacetUri(CHANNELS.find((c) => c.slack === "C03RR0W5DGC")!);
+    expect(renderFacets(t, [f("#devlog-together", uri), f("#elsewhere", "at://did:plc:x/social.colibri.channel/nope")], withChannel))
       .toBe("see <#C03RR0W5DGC> and #elsewhere");
   });
 });

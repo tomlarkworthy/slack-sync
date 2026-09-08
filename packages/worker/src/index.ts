@@ -27,7 +27,7 @@
 // Channel map lives in channels.ts — channel additions require a redeploy.
 
 import { didForSlackUser } from "./slack-to-did";
-import { CHANNEL_MAP, channelForSlackId } from "./channels";
+import { CHANNEL_MAP, channelFacetUri, channelForSlackId } from "./channels";
 import { logEvent } from "./eventlog";
 import { emojiForName } from "./emoji";
 import {
@@ -362,7 +362,7 @@ function walkSectionItem(
       if (ch) {
         b.emit(`#${ch.name}`, {
           $type: "social.colibri.richtext.facet#channel",
-          channel: ch.oldRkey,
+          channel: channelFacetUri(ch),
         });
       } else {
         b.emit(`#${item.channel_id}`);
