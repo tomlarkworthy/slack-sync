@@ -47,4 +47,25 @@ After deploy, set the Slack app's **Event Subscriptions -> Request URL** to `htt
 | Durable Object `JetstreamTail` (`src/tail.ts`) | Producer for `atproto-events`. Alarm every 10 s: open Jetstream at the stored cursor, forward bot-free commits whose channel maps (messages) or that need a lookup (reactions, deletes), close once an event is past the drain start. Cron `*/1` re-arms a lost alarm. |
 | `GET /tail/status`, `POST /tail/start`, `POST /tail/stop` | Tail control, bearer `INJECT_TOKEN`. Status carries cursor, last drain size/duration, caught-up flag, last error, next alarm. `bun scripts/tail-smoke.ts [cursor_us] [budget_ms]` runs one drain locally. |
 
+## Checking the transforms
+
+The forward walker (Slack `blocks` -> Colibri text+facets, `src/index.ts`) and
+the reverse renderer (`src/mrkdwn.ts`, which calls itself its inverse) are
+checked against Slack's own output rather than against hand-written cases.
+Every Slack message event carries both `blocks` and `text` — Slack's own
+plaintext of the same message — so the archive in
+`com.feelingofcomputing.bridge.slackRaw` is an independent oracle.
+
+| Command | What it asserts |
+|---|---|
+| `bun scripts/fidelity.ts [--detail]` | No word of Slack's plaintext is missing from what the walker produces. 1261 of 1263 archived messages lossless; the 2 are Slack autolinking in its fallback text something the block tree carries as plain text. |
+| `bun scripts/roundtrip.ts [--detail]` | blocks -> walker -> renderer -> mrkdwn equals the mrkdwn Slack sent. 898 of 916 distinct messages (98%) exact; divergences are grouped by class. |
+| `bun test test/corpus.test.ts` | The same two checks offline, over `test/fixtures/slack-corpus.json` — one real message per distinct combination of element types. Known reverse-leg gaps are listed by ts with a reason. |
+| `bun scripts/build-fixture.ts` | Rebuilds that fixture from the live archive. Run it after a new element type appears. |
+
+Hand-written cases are what let `rich_text_list` and `message_mention` through:
+both were dropped silently for months because an unhandled element type falls
+out of the `switch` without an error. The corpus test exists so a block type
+nobody thought of still has to survive the walk.
+
 See the design proposal (PR #20) for HMAC verification details, the dedupe model (deterministic rkeys -> putRecord upsert), and the read-modify-write pattern for category `channelOrder` updates.

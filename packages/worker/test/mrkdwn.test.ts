@@ -27,7 +27,9 @@ describe("renderFacets", () => {
       { index: { byteStart: 4, byteEnd: 8 }, features: [{ $type: `${F}#link`, uri: "https://a.b/?q=1&r=2" }] },
       { index: { byteStart: 12, byteEnd: t.length }, features: [{ $type: `${F}#link`, uri: "https://x.y/" }] },
     ];
-    expect(renderFacets(t, facets, opts)).toBe("see <https://a.b/?q=1&r=2|docs> or <https://x.y/>");
+    // `&` is entity-escaped inside the URI too — that is how Slack spells its
+    // own links, and it unescapes on parse.
+    expect(renderFacets(t, facets, opts)).toBe("see <https://a.b/?q=1&amp;r=2|docs> or <https://x.y/>");
   });
 
   test("mention maps to a Slack user, unknown DID stays text", () => {

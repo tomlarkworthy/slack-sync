@@ -1,0 +1,1611 @@
+[
+ {
+  "ts": "1784310984.808249",
+  "channel": "CCL5VVBAN",
+  "shape": "channel,rich_text,rich_text_section,text,user",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "JeV0I",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "It's okay ",
+        "type": "text"
+       },
+       {
+        "type": "user",
+        "user_id": "U0BEU8EQDTQ"
+       },
+       {
+        "text": ".  ",
+        "type": "text"
+       },
+       {
+        "type": "channel",
+        "channel_id": "CCL5VVBAN"
+       },
+       {
+        "text": " is a safe space for half-baked ideas.  This is super interesting.  I feel like you and I got some of the same notes from the muse about to what to work on this summer.  I like how you're taking \"object oriented\" more seriously than most with the inside/outside distinction and sensation.",
+        "type": "text"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "It's okay <@U0BEU8EQDTQ>.  <#CCL5VVBAN> is a safe space for half-baked ideas.  This is super interesting.  I feel like you and I got some of the same notes from the muse about to what to work on this summer.  I like how you're taking \"object oriented\" more seriously than most with the inside/outside distinction and sensation."
+ },
+ {
+  "ts": "1781728963.546649",
+  "channel": "CCL5VVBAN",
+  "shape": "emoji,link,rich_text,rich_text_list,rich_text_section,text",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "1R7Ak",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "Hey all! I rewrote my ",
+        "type": "text"
+       },
+       {
+        "url": "https://knotend.com/",
+        "text": "keyboard-driven flowchart editor",
+        "type": "link"
+       },
+       {
+        "text": " and would love some feedback! I shared a prototype a couple years ago here. It had a lot of issues in its core UX. I came up with a new approach a month or two ago and decided to try again from scratch.\n\nThe main design difference with knotend from other flowchart tools is that all nodes are laid out in a 2D grid. You can select and navigate the grid, like a spreadsheet, so you can do most operations completely on the keyboard instead of manually placing nodes at the pixel level. I personally wanted this because I use dependency charts to model out tasks in a big project, and also process/user flow diagrams. I dont care about pixel perfect placement, I just want to type out a graph quickly.\n\nSome open questions I'm still working on:\n",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_list",
+      "style": "bullet",
+      "border": 0,
+      "indent": 0,
+      "elements": [
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "The layout algorithm isn't too smart yet. When you Tab to add a child it just finds a column with other siblings, and finds an empty cell in there. ",
+          "type": "text"
+         },
+         {
+          "text": "It never moves other nodes",
+          "type": "text",
+          "style": {
+           "bold": true
+          }
+         },
+         {
+          "text": " to make space. I think there's a lot of opportunity to make better, but its a subtle decision because you don't want to move TONS of nodes which is jarring to the user. The old version of knotend always did a complete relayout on every graph edit which was super jarring and the biggest issue I had.",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "I'm still deciding on what should happen when moving nodes via keyboard shortcut. Right now if you move into another node it will swap their positions (same with multiple nodes being moved). I also tried \"pushing\" nodes out of the way but it feels strange. Another approach could be to \"jump\" over the node instead of swapping positions, but this also seems awkward in many cases.",
+          "type": "text"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "\nSome notes from a technical perspective:\n",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_list",
+      "style": "bullet",
+      "border": 0,
+      "indent": 0,
+      "elements": [
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "It doesn't support zoom/pan yet. This was a decision just to speedup getting to a v1. My solution is that the grid has origin at top/left at 0,0 and all rows/columns are positive. If you move a node left/up out of bounds it shifts all nodes by the opposite of that delta (eg right/down) to make space. ",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "Its all simple React, divs. At some point this won't scale. I use component memo heavily to not re-render one very interaction.",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "I used claude rarely, mostly when I'm tired or on a plane. I find claude most useful in either prototyping several options that I wouldn't have time to do, or producing a ton of boilerplate (which doesn't really apply yet to this greenfield project). I also find it pretty bad at reasoning about geometric things, highly visual things for some reason.",
+          "type": "text"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "\nYou can use it here: ",
+        "type": "text"
+       },
+       {
+        "url": "http://knotend.com",
+        "text": "knotend.com",
+        "type": "link"
+       },
+       {
+        "text": "\n\nI'd love any feedback you all have to offer ",
+        "type": "text"
+       },
+       {
+        "name": "slightly_smiling_face",
+        "type": "emoji",
+        "unicode": "1f642"
+       },
+       {
+        "text": ". Especially about its core mechanics since its a v1. Thanks!",
+        "type": "text"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "Hey all! I rewrote my <https://knotend.com/|keyboard-driven flowchart editor> and would love some feedback! I shared a prototype a couple years ago here. It had a lot of issues in its core UX. I came up with a new approach a month or two ago and decided to try again from scratch.\n\nThe main design difference with knotend from other flowchart tools is that all nodes are laid out in a 2D grid. You can select and navigate the grid, like a spreadsheet, so you can do most operations completely on the keyboard instead of manually placing nodes at the pixel level. I personally wanted this because I use dependency charts to model out tasks in a big project, and also process/user flow diagrams. I dont care about pixel perfect placement, I just want to type out a graph quickly.\n\nSome open questions I'm still working on:\n• The layout algorithm isn't too smart yet. When you Tab to add a child it just finds a column with other siblings, and finds an empty cell in there. *It never moves other nodes* to make space. I think there's a lot of opportunity to make better, but its a subtle decision because you don't want to move TONS of nodes which is jarring to the user. The old version of knotend always did a complete relayout on every graph edit which was super jarring and the biggest issue I had.\n• I'm still deciding on what should happen when moving nodes via keyboard shortcut. Right now if you move into another node it will swap their positions (same with multiple nodes being moved). I also tried \"pushing\" nodes out of the way but it feels strange. Another approach could be to \"jump\" over the node instead of swapping positions, but this also seems awkward in many cases.\nSome notes from a technical perspective:\n• It doesn't support zoom/pan yet. This was a decision just to speedup getting to a v1. My solution is that the grid has origin at top/left at 0,0 and all rows/columns are positive. If you move a node left/up out of bounds it shifts all nodes by the opposite of that delta (eg right/down) to make space. \n• Its all simple React, divs. At some point this won't scale. I use component memo heavily to not re-render one very interaction.\n• I used claude rarely, mostly when I'm tired or on a plane. I find claude most useful in either prototyping several options that I wouldn't have time to do, or producing a ton of boilerplate (which doesn't really apply yet to this greenfield project). I also find it pretty bad at reasoning about geometric things, highly visual things for some reason.\nYou can use it here: <http://knotend.com|knotend.com>\n\nI'd love any feedback you all have to offer :slightly_smiling_face:. Especially about its core mechanics since its a v1. Thanks!"
+ },
+ {
+  "ts": "1781908847.430869",
+  "channel": "CGMJ7323Z",
+  "shape": "emoji,link,rich_text,rich_text_list,rich_text_section,text,user",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "+6fSa",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "June virtual meetup • ",
+        "type": "text",
+        "style": {
+         "bold": true
+        }
+       },
+       {
+        "url": "https://time.is/1800_24_JUN_2026_in_UTC?Virtual_Meetup",
+        "text": "Wednesednseday June 24 at 18:00 UTC",
+        "type": "link",
+        "style": {
+         "bold": true
+        }
+       },
+       {
+        "text": " • ",
+        "type": "text",
+        "style": {
+         "bold": true
+        }
+       },
+       {
+        "url": "https://luma.com/gqqya7bh?tk=UgaGVX",
+        "text": "RSVP",
+        "type": "link",
+        "style": {
+         "bold": true
+        }
+       },
+       {
+        "text": "\n\nWell, I guess the secret is out. No sense hiding it anymore — not that it was particularly well hidden in the first place. See it from space. Feel it from afar. Close your eyes. Count to three. Breathe deeply.\n\nIt's still the wind.\n\n",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_list",
+      "style": "bullet",
+      "border": 0,
+      "indent": 0,
+      "elements": [
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "type": "user",
+          "user_id": "U0249H3TD46"
+         },
+         {
+          "text": " has made a new flow for moldable development where you make walkthroughs of code with deep links",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "type": "user",
+          "user_id": "UC2A2ARPT"
+         },
+         {
+          "text": " made a weird text editor. Like, a really weird text editor. Like, a mouse-based text editor (dammit Ivy! why)",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "…………",
+          "type": "text"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "\nWe don't have a third demo yet! Got something you'd like to share? Post a reply ",
+        "type": "text"
+       },
+       {
+        "url": "https://feelingofcomputing.slack.com/archives/C01932BJGE8/p1781812196165289",
+        "text": "in this thread",
+        "type": "link"
+       },
+       {
+        "text": "! ",
+        "type": "text"
+       },
+       {
+        "name": "white_heart",
+        "type": "emoji",
+        "unicode": "1f90d"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "*June virtual meetup • <https://time.is/1800_24_JUN_2026_in_UTC?Virtual_Meetup|Wednesednseday June 24 at 18:00 UTC> • <https://luma.com/gqqya7bh?tk=UgaGVX|RSVP>*\n\nWell, I guess the secret is out. No sense hiding it anymore — not that it was particularly well hidden in the first place. See it from space. Feel it from afar. Close your eyes. Count to three. Breathe deeply.\n\nIt's still the wind.\n\n• <@U0249H3TD46> has made a new flow for moldable development where you make walkthroughs of code with deep links\n• <@UC2A2ARPT> made a weird text editor. Like, a really weird text editor. Like, a mouse-based text editor (dammit Ivy! why)\n• …………\nWe don't have a third demo yet! Got something you'd like to share? Post a reply <https://feelingofcomputing.slack.com/archives/C01932BJGE8/p1781812196165289|in this thread>! :white_heart:"
+ },
+ {
+  "ts": "1780588165.451749",
+  "channel": "C03RR0W5DGC",
+  "shape": "emoji,link,rich_text,rich_text_section,text",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "c9JjB",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "now do wobbly windows ",
+        "type": "text"
+       },
+       {
+        "name": "slightly_smiling_face",
+        "type": "emoji",
+        "unicode": "1f642"
+       },
+       {
+        "text": "\n\n",
+        "type": "text"
+       },
+       {
+        "url": "https://www.youtube.com/watch?v=Vt05j44mMCA",
+        "type": "link"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "now do wobbly windows :slightly_smiling_face:\n\n<https://www.youtube.com/watch?v=Vt05j44mMCA>"
+ },
+ {
+  "ts": "1780412101.394069",
+  "channel": "CCL5VVBAN",
+  "shape": "emoji,link,rich_text,rich_text_section,text,user",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "whAF9",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "name": "thread",
+        "type": "emoji",
+        "unicode": "1f9f5"
+       },
+       {
+        "text": " for ",
+        "type": "text"
+       },
+       {
+        "type": "user",
+        "user_id": "U03E4LY27FS"
+       },
+       {
+        "text": "'s ",
+        "type": "text"
+       },
+       {
+        "url": "https://www.youtube.com/watch?v=81yFRBBVSQ4&t=942s",
+        "text": "spatial IDE",
+        "type": "link"
+       },
+       {
+        "text": ".\n\nIvan, could you share a link to your repo?",
+        "type": "text"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": ":thread: for <@U03E4LY27FS>'s <https://www.youtube.com/watch?v=81yFRBBVSQ4&amp;t=942s|spatial IDE>.\n\nIvan, could you share a link to your repo?"
+ },
+ {
+  "ts": "1786627456.395229",
+  "channel": "C050QK4917D",
+  "shape": "emoji,message_mention,rich_text,rich_text_section,text,user",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "zhe61",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "type": "user",
+        "user_id": "UJFN50C00"
+       },
+       {
+        "text": " ",
+        "type": "text"
+       },
+       {
+        "name": "transgender_flag",
+        "type": "emoji",
+        "unicode": "1f3f3-fe0f-200d-26a7-fe0f"
+       },
+       {
+        "text": " ",
+        "type": "text"
+       },
+       {
+        "url": "https://feelingofcomputing.slack.com/archives/CGMJ7323Z/p1780451180840059",
+        "type": "message_mention",
+        "channel_id": "CGMJ7323Z",
+        "message_ts": "1780451180.840059"
+       },
+       {
+        "text": " ",
+        "type": "text"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "<@UJFN50C00> :transgender_flag: <https://feelingofcomputing.slack.com/archives/CGMJ7323Z/p1780451180840059> "
+ },
+ {
+  "ts": "1785572832.240259",
+  "channel": "C01932BJGE8",
+  "shape": "emoji,rich_text,rich_text_list,rich_text_section,text",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "W+/aq",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "That's a fun question... I remember one definition that goes like: ",
+        "type": "text"
+       },
+       {
+        "text": "programming is an approach to wider problem of \"program synthesis\", where the expected behavior of a computer program is provided as a formal specification",
+        "type": "text",
+        "style": {
+         "italic": true
+        }
+       },
+       {
+        "text": ". I think it kind of works but it also sounds like it was written by someone working on program synthesis ",
+        "type": "text"
+       },
+       {
+        "name": "stuck_out_tongue",
+        "type": "emoji",
+        "unicode": "1f61b"
+       },
+       {
+        "text": "\n\nI think this question (what is programming) may be easier to tackle if it's split into smaller aspects:\n",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_list",
+      "style": "ordered",
+      "border": 0,
+      "indent": 0,
+      "elements": [
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "power to decide ",
+          "type": "text"
+         },
+         {
+          "text": "what",
+          "type": "text",
+          "style": {
+           "bold": true
+          }
+         },
+         {
+          "text": " is being computed: the logic / formulas / behavior of the program;",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "control over ",
+          "type": "text"
+         },
+         {
+          "text": "when",
+          "type": "text",
+          "style": {
+           "bold": true
+          }
+         },
+         {
+          "text": " things are computed: parallelism, scheduling, error recovery;",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "control over ",
+          "type": "text"
+         },
+         {
+          "text": "where",
+          "type": "text",
+          "style": {
+           "bold": true
+          }
+         },
+         {
+          "text": " things are computed: memory management, data storage, algorithms, software \"architecture\".",
+          "type": "text"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "\nI think that going through a list like that and pondering \"is this essential to programming\" might help in defining it. There are specialized tools that deal with each of those aspects and more general tools that deal with multiple of them. Maybe programming is just one of those aspects? Maybe two or three? Maybe programming is just the ability to make these tools do stuff?\n\nPersonally - I find the definition of programming very interesting but not as interesting as the \"powers\" that it gives. I wouldn't care about programming at all if I had the power to do all these things without it.",
+        "type": "text"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "That's a fun question... I remember one definition that goes like: _programming is an approach to wider problem of \"program synthesis\", where the expected behavior of a computer program is provided as a formal specification_. I think it kind of works but it also sounds like it was written by someone working on program synthesis :stuck_out_tongue:\n\nI think this question (what is programming) may be easier to tackle if it's split into smaller aspects:\n1. power to decide *what* is being computed: the logic / formulas / behavior of the program;\n2. control over *when* things are computed: parallelism, scheduling, error recovery;\n3. control over *where* things are computed: memory management, data storage, algorithms, software \"architecture\".\nI think that going through a list like that and pondering \"is this essential to programming\" might help in defining it. There are specialized tools that deal with each of those aspects and more general tools that deal with multiple of them. Maybe programming is just one of those aspects? Maybe two or three? Maybe programming is just the ability to make these tools do stuff?\n\nPersonally - I find the definition of programming very interesting but not as interesting as the \"powers\" that it gives. I wouldn't care about programming at all if I had the power to do all these things without it."
+ },
+ {
+  "ts": "1786608413.387939",
+  "channel": "C050QK4917D",
+  "shape": "emoji,rich_text,rich_text_section",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "QmSgQ",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "name": "smile",
+        "type": "emoji",
+        "unicode": "1f604"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": ":smile:"
+ },
+ {
+  "ts": "1782331037.625849",
+  "channel": "C01932BJGE8",
+  "shape": "emoji,rich_text,rich_text_section,text",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "+/T/z",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "Okay ",
+        "type": "text"
+       },
+       {
+        "name": "ok_hand",
+        "type": "emoji",
+        "unicode": "1f44c"
+       },
+       {
+        "text": " ",
+        "type": "text"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "Okay :ok_hand: "
+ },
+ {
+  "ts": "1784294665.557379",
+  "channel": "C5T9GPWFL",
+  "shape": "emoji,rich_text,rich_text_section,text,user",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "i+2g2",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "Hey ",
+        "type": "text"
+       },
+       {
+        "type": "user",
+        "user_id": "U0BGQASJ7U6"
+       },
+       {
+        "text": ",\n\nThanks for the kind words! That's actually something I plan to cover in a future blog post so feel free to subscribe to the LinkedIn newsletter (free) and you'll be the first to hear when I do ",
+        "type": "text"
+       },
+       {
+        "name": "wink",
+        "type": "emoji",
+        "unicode": "1f609"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "Hey <@U0BGQASJ7U6>,\n\nThanks for the kind words! That's actually something I plan to cover in a future blog post so feel free to subscribe to the LinkedIn newsletter (free) and you'll be the first to hear when I do :wink:"
+ },
+ {
+  "ts": "1788819567.991759",
+  "channel": "C03RR0W5DGC",
+  "shape": "link,message_mention,rich_text,rich_text_section,text",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "Mipyc",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "url": "https://feelingofcomputing.slack.com/archives/C03RR0W5DGC/p1788124779006759",
+        "text": "https://feelingofcomputing.slack.com/archives/C03RR0W5DGC/p1788124779006759",
+        "type": "message_mention",
+        "author_id": "UK3LH8CF5",
+        "thread_ts": "1788124779.006759",
+        "channel_id": "C03RR0W5DGC",
+        "message_ts": "1788124779.006759"
+       },
+       {
+        "text": "\n\n",
+        "type": "text"
+       },
+       {
+        "url": "https://en.wikipedia.org/wiki/AppKit",
+        "text": "en.wikipedia.org/wiki/AppKit",
+        "type": "link",
+        "truncated": true
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "<https://feelingofcomputing.slack.com/archives/C03RR0W5DGC/p1788124779006759|https://feelingofcomputing.slack.com/archives/C03RR0W5DGC/p1788124779006759>\n\n<https://en.wikipedia.org/wiki/AppKit|en.wikipedia.org/wiki/AppKit>"
+ },
+ {
+  "ts": "1788124779.006759",
+  "channel": "C03RR0W5DGC",
+  "shape": "link,rich_text,rich_text_list,rich_text_preformatted,rich_text_section,text",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "Erq7y",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "I've been having a blast building a statically typed \"lisp\" I'm calling ",
+        "type": "text"
+       },
+       {
+        "url": "https://github.com/jimmyhmiller/coil",
+        "text": "coil",
+        "type": "link"
+       },
+       {
+        "text": ". It is very much alpha quality right now. But it lives in a space that no other language I know does and has been quite fun to build things with because of it.\n\n",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_list",
+      "style": "bullet",
+      "border": 0,
+      "indent": 0,
+      "elements": [
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "As low level as C; Manual memory, totally unsafe (by default)",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "Has sums + structs + traits + derive like rust",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "Has the most powerful metaprogramming system I've personally seen",
+          "type": "text"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "\nIt has the standard things you think of with lisp macros. But where it really becomes powerful is in its \"metaprogram\" system. Which is a concept I stole from jblows Jai. Though it is a bit different here I'm sure.\n\nA metaprogram is a complete arbitrary computation at compiletime that is fed your whole program. Right now the interface isn't in its final form. But here are some examples of what you can do.\n\n",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_preformatted",
+      "border": 0,
+      "elements": [
+       {
+        "text": "~/Documents/Code/projects/coil-experiments main\n❯ cat tests/brainfuck/hello.bf\n++++++++++[>+++++++>++++++++++>+++>+<<<<-]>++.>+.+++++++..+++.>++.\n<<+++++++++++++++.>.+++.------.--------.>+.>.\n\n~/Documents/Code/projects/coil-experiments main\n❯ coil run tests/brainfuck/hello.bf --use experiments.brainfuck.lang\nHello World!",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "\nThe ",
+        "type": "text"
+       },
+       {
+        "url": "https://github.com/jimmyhmiller/coil-experiments/blob/main/src/dialects/brainfuck/brainfuck_reader.coil",
+        "text": "metaprogram",
+        "type": "link"
+       },
+       {
+        "text": " here overrides the reader, making it so that bf is completely valid syntax in our language. The resulting program is all coil. No runtime component at all.\n\nI have taken this way further than bf. I made a C metaprogram. Took all of doom, and now doom works in my language. No C at runtime. Only coil. Hopefully soon I'll have some demos to share for all of the amazing things you can do with metaprograms.",
+        "type": "text"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "I've been having a blast building a statically typed \"lisp\" I'm calling <https://github.com/jimmyhmiller/coil|coil>. It is very much alpha quality right now. But it lives in a space that no other language I know does and has been quite fun to build things with because of it.\n\n• As low level as C; Manual memory, totally unsafe (by default)\n• Has sums + structs + traits + derive like rust\n• Has the most powerful metaprogramming system I've personally seen\nIt has the standard things you think of with lisp macros. But where it really becomes powerful is in its \"metaprogram\" system. Which is a concept I stole from jblows Jai. Though it is a bit different here I'm sure.\n\nA metaprogram is a complete arbitrary computation at compiletime that is fed your whole program. Right now the interface isn't in its final form. But here are some examples of what you can do.\n\n```~/Documents/Code/projects/coil-experiments main\n❯ cat tests/brainfuck/hello.bf\n++++++++++[&gt;+++++++&gt;++++++++++&gt;+++&gt;+&lt;&lt;&lt;&lt;-]&gt;++.&gt;+.+++++++..+++.&gt;++.\n&lt;&lt;+++++++++++++++.&gt;.+++.------.--------.&gt;+.&gt;.\n\n~/Documents/Code/projects/coil-experiments main\n❯ coil run tests/brainfuck/hello.bf --use experiments.brainfuck.lang\nHello World!```\nThe <https://github.com/jimmyhmiller/coil-experiments/blob/main/src/dialects/brainfuck/brainfuck_reader.coil|metaprogram> here overrides the reader, making it so that bf is completely valid syntax in our language. The resulting program is all coil. No runtime component at all.\n\nI have taken this way further than bf. I made a C metaprogram. Took all of doom, and now doom works in my language. No C at runtime. Only coil. Hopefully soon I'll have some demos to share for all of the amazing things you can do with metaprograms."
+ },
+ {
+  "ts": "1788292326.361579",
+  "channel": "CCL5VVBAN",
+  "shape": "link,rich_text,rich_text_list,rich_text_section,text",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "wSVUK",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "Howdy everyone! I'm ",
+        "type": "text"
+       },
+       {
+        "url": "https://akkartik.name/archives/foc/introduce-yourself/index.html#1710164773.643959",
+        "text": "Dev",
+        "type": "link"
+       },
+       {
+        "text": " and here's some screenshots from my malleable developer environment ",
+        "type": "text"
+       },
+       {
+        "text": "desh",
+        "type": "text",
+        "style": {
+         "code": true
+        }
+       },
+       {
+        "text": "\n\n",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_list",
+      "style": "bullet",
+      "border": 0,
+      "indent": 0,
+      "elements": [
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "it's meant to be usable by humans without agents while also being a nice place for agents",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "all those contextual actions are partially inspired by hypermedia concepts, and are exposed to agents too, and are one way it can modify itself at runtime / enable end user programming",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "it can work with voice, touch, etc.",
+          "type": "text"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "\nlots more features but curious to hear questions and feedback while I work on a video",
+        "type": "text"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "Howdy everyone! I'm <https://akkartik.name/archives/foc/introduce-yourself/index.html#1710164773.643959|Dev> and here's some screenshots from my malleable developer environment `desh`\n\n• it's meant to be usable by humans without agents while also being a nice place for agents\n• all those contextual actions are partially inspired by hypermedia concepts, and are exposed to agents too, and are one way it can modify itself at runtime / enable end user programming\n• it can work with voice, touch, etc.\nlots more features but curious to hear questions and feedback while I work on a video"
+ },
+ {
+  "ts": "1783202995.763849",
+  "channel": "C5U3SEW6A",
+  "shape": "link,rich_text,rich_text_list,rich_text_section,text,user",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "ovW2u",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "I really enjoyed this retrospective on Muse by ",
+        "type": "text"
+       },
+       {
+        "type": "user",
+        "user_id": "UH79XRLJW"
+       },
+       {
+        "text": " \n\nA few things in particular \n",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_list",
+      "style": "bullet",
+      "border": 0,
+      "indent": 0,
+      "offset": 0,
+      "elements": [
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "The balance between what's good for the company vs good for its users",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "inventing a new document type (is hard)",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "Being a general vs specialized tool",
+          "type": "text"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "\n",
+        "type": "text"
+       },
+       {
+        "url": "https://adamwiggins.com/muse-retrospective/",
+        "text": "https://adamwiggins.com/muse-retrospective/",
+        "type": "link"
+       },
+       {
+        "text": " ",
+        "type": "text"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "I really enjoyed this retrospective on Muse by <@UH79XRLJW> \n\nA few things in particular \n• The balance between what's good for the company vs good for its users\n• inventing a new document type (is hard)\n• Being a general vs specialized tool\n<https://adamwiggins.com/muse-retrospective/|https://adamwiggins.com/muse-retrospective/> "
+ },
+ {
+  "ts": "1783242563.029129",
+  "channel": "C5T9GPWFL",
+  "shape": "link,rich_text,rich_text_quote,rich_text_section,text",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "NqpJ6",
+    "elements": [
+     {
+      "type": "rich_text_quote",
+      "elements": [
+       {
+        "text": "Q: Why can't we plug software modules together like LEGO® blocks?",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "\n",
+        "type": "text"
+       },
+       {
+        "url": "https://programmingsimplicity.substack.com/p/five-whys-for-software-component?r=1egdky",
+        "text": "Five Whys For Software Component Isolation",
+        "type": "link"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "&gt; Q: Why can't we plug software modules together like LEGO® blocks?\n<https://programmingsimplicity.substack.com/p/five-whys-for-software-component?r=1egdky|Five Whys For Software Component Isolation>"
+ },
+ {
+  "ts": "1783534156.658239",
+  "channel": "C5T9GPWFL",
+  "shape": "link,rich_text,rich_text_quote,rich_text_section,text,user",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "uAs2p",
+    "elements": [
+     {
+      "type": "rich_text_quote",
+      "elements": [
+       {
+        "text": "how can you use these tools but also retain your connection to coding / friction, etc ?",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "\n",
+        "type": "text"
+       },
+       {
+        "type": "user",
+        "user_id": "U0BEZM8BJRZ"
+       },
+       {
+        "text": " I came across this recently, thought it was a fine idea. It is emacs only, but the author mentioned he wanted to do VSCode next, so maybe worth tracking. Sounds like something that could be very beneficial for students…\n\n",
+        "type": "text"
+       },
+       {
+        "url": "https://github.com/jaketothepast/codetutor",
+        "text": "github.com/jaketothepast/codetutor",
+        "type": "link",
+        "truncated": true
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "&gt; how can you use these tools but also retain your connection to coding / friction, etc ?\n<@U0BEZM8BJRZ> I came across this recently, thought it was a fine idea. It is emacs only, but the author mentioned he wanted to do VSCode next, so maybe worth tracking. Sounds like something that could be very beneficial for students…\n\n<https://github.com/jaketothepast/codetutor|github.com/jaketothepast/codetutor>"
+ },
+ {
+  "ts": "1782198204.697229",
+  "channel": "C5U3SEW6A",
+  "shape": "link,rich_text,rich_text_section",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "cpLot",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "url": "https://www.ultorg.com/",
+        "type": "link"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "<https://www.ultorg.com/>"
+ },
+ {
+  "ts": "1780306795.303619",
+  "channel": "CEXED56UR",
+  "shape": "link,rich_text,rich_text_section,text",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "sUZZy",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "or ",
+        "type": "text"
+       },
+       {
+        "url": "https://webtorrent.io/",
+        "type": "link"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "or <https://webtorrent.io/>"
+ },
+ {
+  "ts": "1782324685.366749",
+  "channel": "C01932BJGE8",
+  "shape": "link,rich_text,rich_text_section,text,user",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "FN8B9",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "type": "user",
+        "user_id": "U01ULEWACPP"
+       },
+       {
+        "text": " -> ",
+        "type": "text"
+       },
+       {
+        "url": "https://ivy.boo/zoom",
+        "type": "link"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "<@U01ULEWACPP> -&gt; <https://ivy.boo/zoom>"
+ },
+ {
+  "ts": "1788819567.991759",
+  "channel": "C03RR0W5DGC",
+  "shape": "message_mention,rich_text,rich_text_section",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "awkoz",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "url": "https://feelingofcomputing.slack.com/archives/C03RR0W5DGC/p1788124779006759",
+        "text": "https://feelingofcomputing.slack.com/archives/C03RR0W5DGC/p1788124779006759",
+        "type": "message_mention",
+        "author_id": "UK3LH8CF5",
+        "thread_ts": "1788124779.006759",
+        "channel_id": "C03RR0W5DGC",
+        "message_ts": "1788124779.006759"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "<https://feelingofcomputing.slack.com/archives/C03RR0W5DGC/p1788124779006759|https://feelingofcomputing.slack.com/archives/C03RR0W5DGC/p1788124779006759>"
+ },
+ {
+  "ts": "1782323546.534849",
+  "channel": "C01932BJGE8",
+  "shape": "message_mention,rich_text,rich_text_section,text",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "y4AUV",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "Ah: ",
+        "type": "text"
+       },
+       {
+        "url": "https://feelingofcomputing.slack.com/archives/CGMJ7323Z/p1781908847430869",
+        "type": "message_mention",
+        "channel_id": "CGMJ7323Z",
+        "message_ts": "1781908847.430869"
+       },
+       {
+        "text": " ",
+        "type": "text"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "Ah: <https://feelingofcomputing.slack.com/archives/CGMJ7323Z/p1781908847430869> "
+ },
+ {
+  "ts": "1786005298.563329",
+  "channel": "C01932BJGE8",
+  "shape": "rich_text,rich_text_list,rich_text_quote,rich_text_section,text",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "NgQnH",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "further aside: I tend to agree with @psf's mastodon thread...\n\n",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_quote",
+      "elements": [
+       {
+        "text": "This brings me back to my original point that end-user programmability is not a true form of malleability, but a kludge indicating the program’s features were not well chosen.",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "\nI do wish, though, that the word \"macro\" were qualified better. I see there being at least several kinds/degrees of macros:\n",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_list",
+      "style": "ordered",
+      "border": 0,
+      "indent": 0,
+      "elements": [
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "keyboard / action recorder",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "C-style ",
+          "type": "text"
+         },
+         {
+          "text": "#define",
+          "type": "text",
+          "style": {
+           "code": true
+          }
+         },
+         {
+          "text": " parameterized & glorified search and replace",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "Lisp-style macros that are actually a kind of code that writes code. This, also, includes languages that provide ",
+          "type": "text"
+         },
+         {
+          "text": "eval()",
+          "type": "text",
+          "style": {
+           "code": true
+          }
+         },
+         {
+          "text": " and even shell scripts that can produce and run other shell scripts (and, of course, T2T). [IMO: banning ",
+          "type": "text"
+         },
+         {
+          "text": "eval()",
+          "type": "text",
+          "style": {
+           "code": true
+          }
+         },
+         {
+          "text": " from program development languages was the wrong move, maybe it should only be banned from released production code]",
+          "type": "text"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "further aside: I tend to agree with @psf's mastodon thread...\n\n&gt; This brings me back to my original point that end-user programmability is not a true form of malleability, but a kludge indicating the program’s features were not well chosen.\nI do wish, though, that the word \"macro\" were qualified better. I see there being at least several kinds/degrees of macros:\n1. keyboard / action recorder\n2. C-style `#define` parameterized &amp; glorified search and replace\n3. Lisp-style macros that are actually a kind of code that writes code. This, also, includes languages that provide `eval()` and even shell scripts that can produce and run other shell scripts (and, of course, T2T). [IMO: banning `eval()` from program development languages was the wrong move, maybe it should only be banned from released production code]"
+ },
+ {
+  "ts": "1785350285.536719",
+  "channel": "C5T9GPWFL",
+  "shape": "rich_text,rich_text_list,rich_text_section,text",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "llyCR",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "I'll go first. I like collecting:\n",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_list",
+      "style": "bullet",
+      "border": 0,
+      "indent": 0,
+      "elements": [
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "Notes.",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "Conversations. My FoC archive is the tip of the iceberg.",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "Accounts on codeforges. Mirrors to host my projects in.",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "Backups. I'm a digital packrat.",
+          "type": "text"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "I'll go first. I like collecting:\n• Notes.\n• Conversations. My FoC archive is the tip of the iceberg.\n• Accounts on codeforges. Mirrors to host my projects in.\n• Backups. I'm a digital packrat."
+ },
+ {
+  "ts": "1782789873.740649",
+  "channel": "C5T9GPWFL",
+  "shape": "rich_text,rich_text_list,rich_text_section,text,user",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "KBJ31",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "type": "user",
+        "user_id": "UJFN50C00"
+       },
+       {
+        "text": " Basically, you are asking for a crystal ball, right?\n\nAdding possibilities of a different kind to your scenario planning:\n",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_list",
+      "style": "ordered",
+      "border": 0,
+      "indent": 0,
+      "elements": [
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "With the recent intense heat waves in Europe, will we see protests and even violent action against data centers?",
+          "type": "text"
+         }
+        ]
+       },
+       {
+        "type": "rich_text_section",
+        "elements": [
+         {
+          "text": "Will we see professional knowledge workers (rather than just hobbyists) move to \"smol\" tech such as Gemini (not the one by Google, obviously) or Reticulum?",
+          "type": "text"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "<@UJFN50C00> Basically, you are asking for a crystal ball, right?\n\nAdding possibilities of a different kind to your scenario planning:\n1. With the recent intense heat waves in Europe, will we see protests and even violent action against data centers?\n2. Will we see professional knowledge workers (rather than just hobbyists) move to \"smol\" tech such as Gemini (not the one by Google, obviously) or Reticulum?"
+ },
+ {
+  "ts": "1788143009.008369",
+  "channel": "C03RR0W5DGC",
+  "shape": "rich_text,rich_text_preformatted,rich_text_section,text",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "35xVy",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "How is\n",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_preformatted",
+      "border": 0,
+      "elements": [
+       {
+        "text": "coil run tests/brainfuck/hello.bf --use experiments.brainfuck.lang",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "different from\n",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_preformatted",
+      "border": 0,
+      "elements": [
+       {
+        "text": "cat tests/brainfuck/hello.bf | coil run convert-bf-to-coil | coil run --from-std-in",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "?\n\nThat is, what makes “metaprogramming” here different from “compiling” (or, if you prefer, “transpiling”)?",
+        "type": "text"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "How is\n```coil run tests/brainfuck/hello.bf --use experiments.brainfuck.lang```\ndifferent from\n```cat tests/brainfuck/hello.bf | coil run convert-bf-to-coil | coil run --from-std-in```\n?\n\nThat is, what makes “metaprogramming” here different from “compiling” (or, if you prefer, “transpiling”)?"
+ },
+ {
+  "ts": "1784573721.206609",
+  "channel": "CEXED56UR",
+  "shape": "rich_text,rich_text_preformatted,text",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "IlyAB",
+    "elements": [
+     {
+      "type": "rich_text_preformatted",
+      "border": 0,
+      "elements": [
+       {
+        "text": "- Posted 18:23:33.934, capturedAt 18:23:39.669 → 5.73s Slack-ts to capture (6.67s against Slack's integer-second event_time). Bang on the p50.\n- Edited 13s later (hence \"edited\": true on the record); the edit bridged in 7.14s.\n- Reacted to 18 minutes later, 5.49s.",
+        "type": "text"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "```- Posted 18:23:33.934, capturedAt 18:23:39.669 → 5.73s Slack-ts to capture (6.67s against Slack's integer-second event_time). Bang on the p50.\n- Edited 13s later (hence \"edited\": true on the record); the edit bridged in 7.14s.\n- Reacted to 18 minutes later, 5.49s.```"
+ },
+ {
+  "ts": "1788787154.304599",
+  "channel": "C050QK4917D",
+  "shape": "rich_text,rich_text_quote,rich_text_section,text",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "5oo79",
+    "elements": [
+     {
+      "type": "rich_text_quote",
+      "border": 0,
+      "elements": [
+       {
+        "text": "Setting aside the endemic culture wars over AI use",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": "\nred flag",
+        "type": "text"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "&gt; Setting aside the endemic culture wars over AI use\nred flag"
+ },
+ {
+  "ts": "1782836168.448969",
+  "channel": "CCL5VVBAN",
+  "shape": "rich_text,rich_text_quote,rich_text_section,text,user",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "hI6gJ",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "type": "user",
+        "user_id": "U02E4DAQGSZ"
+       },
+       {
+        "text": " Right now the threshold I haven't crossed is LM-based PR review. It's plausible that someone has written a skill that checks for regressions in, say, React components that refresh too eagerly and clobber user input. I think I am going to seek out those repositories of open skills.\n",
+        "type": "text"
+       }
+      ]
+     },
+     {
+      "type": "rich_text_quote",
+      "elements": [
+       {
+        "text": "MCPs and custom skills give your LLM access to your database, your APIs, your CI pipeline, your design system, Playwright for browser testing, [...] my team shares a PR review skill that we've all iterated on (and still do) that conditionally launches subagents depending on the nature of the PR. [...] Skills get the same treatment as code: pull requests, reviews, version history.",
+        "type": "text"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "<@U02E4DAQGSZ> Right now the threshold I haven't crossed is LM-based PR review. It's plausible that someone has written a skill that checks for regressions in, say, React components that refresh too eagerly and clobber user input. I think I am going to seek out those repositories of open skills.\n&gt; MCPs and custom skills give your LLM access to your database, your APIs, your CI pipeline, your design system, Playwright for browser testing, [...] my team shares a PR review skill that we've all iterated on (and still do) that conditionally launches subagents depending on the nature of the PR. [...] Skills get the same treatment as code: pull requests, reviews, version history."
+ },
+ {
+  "ts": "1787758938.856759",
+  "channel": "CCL5VVBAN",
+  "shape": "rich_text,rich_text_section,text",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "/dfhg",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "text": ".",
+        "type": "text"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "."
+ },
+ {
+  "ts": "1788805090.697059",
+  "channel": "CEXED56UR",
+  "shape": "rich_text,rich_text_section,text,user",
+  "blocks": [
+   {
+    "type": "rich_text",
+    "block_id": "oRxwC",
+    "elements": [
+     {
+      "type": "rich_text_section",
+      "elements": [
+       {
+        "type": "user",
+        "user_id": "U02E4DAQGSZ"
+       },
+       {
+        "text": " merged!",
+        "type": "text"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "text": "<@U02E4DAQGSZ> merged!"
+ }
+]

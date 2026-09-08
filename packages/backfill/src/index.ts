@@ -240,6 +240,8 @@ function walkSectionItem(item: any, b: FacetBuilder) {
       b.emit(item.text ?? "", ...features);
       break;
     }
+    // A permalink to another Slack message: same url + text shape as a link.
+    case "message_mention":
     case "link": {
       const text = item.text || item.url;
       b.emit(text, {
@@ -296,16 +298,26 @@ function walkSectionItem(item: any, b: FacetBuilder) {
 }
 
 function walkQuote(elements: any[], b: FacetBuilder) {
-  // Build the inner text, then line-prefix with "> ". Facet offsets inside
-  // the quoted block are dropped (v0 best-effort).
+  // Build the inner text, then line-prefix with "> ". Every line gains 2 bytes,
+  // so inner facets are re-indexed rather than dropped — a link inside a quote
+  // would otherwise keep its label and lose its URL.
   const inner = new FacetBuilder();
   walkSection(elements, inner);
-  const { text } = inner.finish();
+  const { text, facets } = inner.finish();
   const prefixed = text
     .split("\n")
     .map((l) => `> ${l}`)
     .join("\n");
+  const base = b.byteOffset;
   b.emit(prefixed);
+  const bytes = enc.encode(text);
+  const shift = (x: number) => {
+    let lines = 1;
+    for (let i = 0; i < x && i < bytes.length; i++) if (bytes[i] === 0x0a) lines++;
+    return base + x + 2 * lines;
+  };
+  for (const f of facets)
+    b.facets.push({ ...f, index: { byteStart: shift(f.index.byteStart), byteEnd: shift(f.index.byteEnd) } });
 }
 
 function walkPreformatted(elements: any[], b: FacetBuilder) {

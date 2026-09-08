@@ -243,12 +243,24 @@ function walkRichTextElements(
       case "rich_text_quote": {
         const sub = new FacetBuilder();
         for (const item of el.elements ?? []) walkSectionItem(item, sub, resolveUser);
-        const quoted = sub
-          .finish()
-          .text.split("\n")
-          .map((l) => `> ${l}`)
-          .join("\n");
-        b.emit(quoted);
+        const { text: inner, facets: innerFacets } = sub.finish();
+        // Facets were built against the unprefixed text; every line gains "> ",
+        // so a byte at inner offset x moves right by 2 * (lines before x + 1).
+        // Dropping them instead loses the URL of any link inside the quote.
+        const base = b.byteOffset;
+        b.emit(quotePrefixed(inner));
+        const innerBytes = utf8enc.encode(inner);
+        const shift = (x: number) => {
+          let lines = 1;
+          for (let i = 0; i < x && i < innerBytes.length; i++) if (innerBytes[i] === 0x0a) lines++;
+          return base + x + 2 * lines;
+        };
+        for (const f of innerFacets) {
+          b.facets.push({
+            ...f,
+            index: { byteStart: shift(f.index.byteStart), byteEnd: shift(f.index.byteEnd) },
+          });
+        }
         break;
       }
       case "rich_text_list":
@@ -296,6 +308,9 @@ function walkList(
   }
 }
 
+const quotePrefixed = (s: string) =>
+  s.split("\n").map((l) => `> ${l}`).join("\n");
+
 function walkSectionItem(
   item: SlackBlockElement,
   b: FacetBuilder,
@@ -312,6 +327,9 @@ function walkSectionItem(
       b.emit(item.text ?? "", ...features);
       break;
     }
+    // message_mention is a permalink to another Slack message; it carries the
+    // same url + text as a link, plus channel_id/message_ts we do not use.
+    case "message_mention":
     case "link":
       if (item.url)
         b.emit(item.text || item.url, {

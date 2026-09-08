@@ -55,7 +55,9 @@ function renderSpan(raw: string, f: ColibriFacet, opts: RenderOpts): string {
     return u ? `<@${u}>` : escapeMrkdwn(raw);
   }
   if (link) {
-    const uri = link.uri!.replaceAll("|", "%7C").replaceAll(">", "%3E");
+    // Slack entity-escapes `&` inside a link URI in its own output (every
+    // `<…?v=x&amp;t=y|label>` in the archive), and unescapes on parse.
+    const uri = link.uri!.replaceAll("&", "&amp;").replaceAll("|", "%7C").replaceAll(">", "%3E");
     return raw === link.uri ? `<${uri}>` : `<${uri}|${escapeMrkdwn(raw)}>`;
   }
   if (kinds.has("code")) {
