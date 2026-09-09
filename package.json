@@ -9,9 +9,11 @@
   "scripts": {
     "backfill": "bun --filter @slack-sync/backfill start",
     "worker:dev": "bun --filter @slack-sync/worker dev",
-    "worker:deploy": "bun --filter @slack-sync/worker deploy"
+    "worker:deploy": "bun --filter @slack-sync/worker deploy",
+    "typecheck": "tsc --noEmit -p packages/shared && tsc --noEmit -p packages/worker && tsc --noEmit -p packages/backfill"
   },
   "devDependencies": {
+    "bun-types": "^1.1.0",
     "typescript": "^5.5.0"
   }
 }

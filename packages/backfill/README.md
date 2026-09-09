@@ -4,7 +4,9 @@ CLI for the historical seed. Reads a day's worth of Slack history JSON and publi
 
 This is the **one-time-then-occasional** path. The real-time forward bridge is `@slack-sync/worker`. Both walk Slack blocks with the one implementation in `@slack-sync/shared`; this package supplies the dump-specific names, DIDs and emoji through `WalkContext`.
 
-**Run it from the repository root** — the dump and mapping paths are relative to it.
+**Run it from the repository root** — the dump and mapping paths are relative to
+it. A missing day file is an error rather than an empty day, so a wrong CWD says
+so instead of reporting "0 messages".
 
 Before a run, check the walker against the input it will be given:
 
@@ -36,9 +38,12 @@ form makes every record look changed.
 bot's app password lives only as a Cloudflare Worker secret and a secret cannot
 be read back, so the usable path is: the CLI derives, the worker writes.
 
+Both drivers default to `--diff-published` and print one `TOTAL` line for the
+whole range.
+
 ```sh
-# preview a range (skips days the dump does not have)
-sh vendor/slack-sync/packages/backfill/scripts/run-days.sh 2026/04/05 2026/05/04 --diff-published
+# what would change over a range (skips days the dump does not have)
+sh vendor/slack-sync/packages/backfill/scripts/run-days.sh 2026/04/05 2026/05/04
 
 # derive the records that differ from what is published
 sh …/run-days.sh 2026/04/05 2026/05/04 --skip-unmapped-channels --emit /tmp/out.jsonl

@@ -86,6 +86,7 @@ the bridge writes the pre-migration rkey and native clients write the migrated a
 
 ```sh
 bun install
+bun run typecheck        # all three packages
 
 # Backfill: see packages/backfill/README.md
 bun --filter @slack-sync/backfill start --src-day 2026/05/30

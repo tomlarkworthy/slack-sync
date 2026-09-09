@@ -278,11 +278,19 @@ function legacyTextFallback(raw: string, b: FacetBuilder) {
 
 // ── load day's data ─────────────────────────────────────────────────────────
 const dayPath = `${srcDir}/${srcDay}`;
-let topLevelRaw: any[] = [];
+let topLevelRaw: any[];
 let repliesRaw: any[] = [];
+// A missing day file is an error, not an empty day: swallowing it made a wrong
+// --src-day, a wrong CWD (every path here is relative to the repository root)
+// and a day the dump does not cover all look like "0 messages, converged".
 try {
   topLevelRaw = JSON.parse(readFileSync(`${dayPath}.json`, "utf-8"));
-} catch {}
+} catch (e) {
+  console.error(`cannot read ${dayPath}.json: ${(e as Error).message}`);
+  console.error(`(paths are relative to the repository root; cwd is ${process.cwd()})`);
+  process.exit(1);
+}
+// A day with no thread replies is legitimate, so this one stays optional.
 try {
   repliesRaw = JSON.parse(readFileSync(`${dayPath}.replies.json`, "utf-8"));
 } catch {}
@@ -535,13 +543,13 @@ async function put(collection: string, rkey: string, record: any) {
     throw new Error(`putRecord ${collection}/${rkey}: ${r.status} ${await r.text()}`);
   return await r.json();
 }
-async function get(repo: string, collection: string, rkey: string) {
+async function get(repo: string, collection: string, rkey: string): Promise<{ uri: string; cid: string; value: any } | null> {
   const r = await fetch(
     `${PDS}/xrpc/com.atproto.repo.getRecord?repo=${repo}&collection=${collection}&rkey=${rkey}`,
   );
   if (r.status === 404) return null;
   if (!r.ok) throw new Error(`getRecord ${collection}/${rkey}: ${r.status}`);
-  return await r.json();
+  return (await r.json()) as { uri: string; cid: string; value: any };
 }
 
 if (!allManual) {
