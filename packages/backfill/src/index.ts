@@ -78,7 +78,7 @@ const limit = parseInt(values.limit!, 10);
 const dryRun = !values.live;
 const emitPath = values.emit;
 const skipUnmapped = values["skip-unmapped-channels"]!;
-const diffPublished = values["diff-published"]! || !!emitPath;
+const diffPublished = values["diff-published"]!;
 const delayMs = parseInt(values["delay-ms"]!, 10);
 
 // ── reference data ──────────────────────────────────────────────────────────
@@ -426,7 +426,7 @@ if (allWithReactions.length > 0) {
 // re-run rewrites every record for the day, so this is how the blast radius of
 // a repair is known before it writes; on a day that was never backfilled every
 // record is new and it reports them all.
-if (diffPublished) {
+if (diffPublished || emitPath) {
   const APPVIEW_PDS = "https://jellybaby.us-east.host.bsky.network";
   // The PDS returns CBOR-decoded maps in canonical key order, which is not the
   // order we build them in — compare by value, or every record looks changed.
@@ -452,7 +452,11 @@ if (diffPublished) {
   const emit: typeof toPut = [];
   let same = 0, fresh = 0;
   const changed: string[] = [];
-  for (const item of toPut) {
+  // Without --diff-published there is no network at all: emit everything and
+  // let the worker say what was created, updated or already correct. Over a
+  // full-corpus backfill that is one getRecord per record saved on a link that
+  // may not hold, moved to the worker's.
+  for (const item of diffPublished ? toPut : []) {
     const { collection, rkey, record } = item;
     const u = new URL(`${APPVIEW_PDS}/xrpc/com.atproto.repo.getRecord`);
     u.searchParams.set("repo", BOT_DID);
@@ -481,15 +485,21 @@ if (diffPublished) {
           : `    - ${JSON.stringify(cur)}\n    + ${JSON.stringify(record)}\n`),
     );
   }
-  console.log("");
-  console.log(
-    `DIFF vs PUBLISHED: ${changed.length} would change (${fresh} new), ${same} unchanged, of ${toPut.length}`,
-  );
-  for (const line of changed) console.log(line);
+  if (diffPublished) {
+    console.log("");
+    console.log(
+      `DIFF vs PUBLISHED: ${changed.length} would change (${fresh} new), ${same} unchanged, of ${toPut.length}`,
+    );
+    for (const line of changed) console.log(line);
+  } else {
+    console.log("");
+    console.log(`EMIT: ${toPut.length} records (not compared; the worker dedups)`);
+  }
   // Emit only what differs: a re-run of a backfilled day is then a no-op, and
   // a day never backfilled emits all of it.
-  if (emitPath && emit.length)
-    appendFileSync(emitPath, emit.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  const out = diffPublished ? emit : toPut;
+  if (emitPath && out.length)
+    appendFileSync(emitPath, out.map((e) => JSON.stringify(e)).join("\n") + "\n");
 }
 
 if (dryRun) {

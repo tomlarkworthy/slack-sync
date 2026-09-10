@@ -48,6 +48,7 @@ import {
   PDS,
   putRecord,
   tidFromSlackTs,
+  writeLimit,
 } from "./atproto";
 import { handleAtprotoEvent, isJetstreamCommit, MIRROR_EVENT_TYPE, type JetstreamEvent } from "./reverse";
 export { JetstreamTail } from "./tail";
@@ -725,16 +726,31 @@ export default {
         );
       }
       const sess = await getBskySession(env);
-      const result = { created: [] as string[], updated: [] as string[], unchanged: [] as string[] };
+      const result: {
+        created: string[];
+        updated: string[];
+        unchanged: string[];
+        failed?: Array<{ rkey: string; error: string }>;
+        limit?: ReturnType<typeof writeLimit>;
+      } = { created: [], updated: [], unchanged: [] };
       for (const { collection, rkey, record } of items) {
-        const cur = await getRecord<Record<string, unknown>>(BOT_DID, collection!, rkey!);
-        if (cur && JSON.stringify(stableKeys(cur.value)) === JSON.stringify(stableKeys(record))) {
-          result.unchanged.push(rkey!);
-          continue;
+        // One bad record must not cost the whole batch: a bulk backfill would
+        // then stall on it, and the caller cannot tell which of the fifty it
+        // was. Report it and carry on; the driver retries what failed.
+        try {
+          const cur = await getRecord<Record<string, unknown>>(BOT_DID, collection!, rkey!);
+          if (cur && JSON.stringify(stableKeys(cur.value)) === JSON.stringify(stableKeys(record))) {
+            result.unchanged.push(rkey!);
+            continue;
+          }
+          await putRecord(sess, collection!, rkey!, record);
+          (cur ? result.updated : result.created).push(rkey!);
+        } catch (e) {
+          (result.failed ??= []).push({ rkey: rkey!, error: String((e as Error).message ?? e) });
         }
-        await putRecord(sess, collection!, rkey!, record);
-        (cur ? result.updated : result.created).push(rkey!);
       }
+      // The PDS's remaining write budget, so a long run can pace itself.
+      result.limit = writeLimit();
       return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
     }
 

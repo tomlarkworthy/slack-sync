@@ -72,6 +72,44 @@ rkey and no `migratedFrom` to resolve an old one through, so `oldRkey` is
 absent and `bridgeChannelRkey()` writes the new one. #of-logic-programming and
 #reading-together are the first two of these.
 
+## Backfilling the whole corpus
+
+Two phases, so a link that drops only affects the second.
+
+```sh
+# 1. derive every day in the dumps — entirely offline, ~2 min, re-runnable
+sh vendor/slack-sync/packages/backfill/scripts/derive-all.sh tools/backfill-all.jsonl
+
+# 2. publish, resumably
+INJECT_TOKEN=… bun packages/backfill/scripts/post-records.ts tools/backfill-all.jsonl
+```
+
+Phase 2 writes `<input>.watermark.json` after every batch of 20 and resumes from
+it, so re-running the same command after a drop, a ^C or a reboot continues
+where it stopped. `--limit N` stops after N records, `--restart` discards the
+watermark, `--dry-run` counts the input.
+
+Every batch is retried with exponential backoff — 12 attempts capped at 5 min,
+about half an hour of outage tolerated — and a 429 honours `Retry-After`. One
+bad record no longer costs its batch: the worker reports it in `failed` and the
+run carries on, with the first 200 recorded in the watermark.
+
+The PDS meters writes per repo. `/backfill/records` returns the remaining
+budget with every response and the run pauses for the window to reset when it
+runs low, rather than discovering the limit as a 429. Measured 2026-09-10:
+`3000;w=300` — 3000 points per 5 minutes, ~1.2 points per write, so ~8 writes/s
+available. The observed rate is ~3/s, so the round trip binds first, not the
+budget.
+
+As of 2026-09-10 the dumps are 2919 days, 2017–2026: **104,208 derived records,
+77,010 distinct** (54,633 messages, 22,377 reactions) — the difference is thread
+replies appearing in more than one day's replies file, byte-identical each time.
+No two records with different content share an rkey.
+
+Four channels have no Colibri channel and are skipped, 2116 messages in total:
+**#of-end-user-programming** (884), **#of-graphics** (853), **#of-music** (303),
+**#of-functional-programming** (76). Creating them and re-running picks them up.
+
 ## Repairing already-backfilled records
 
 `scripts/repair-days.sh` re-derives the days the first backfill covered:

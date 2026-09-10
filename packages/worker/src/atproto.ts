@@ -47,9 +47,28 @@ export async function putRecord(
     },
     body: JSON.stringify({ repo: sess.did, collection, rkey, record }),
   });
+  // The PDS meters writes per repo (points per hour, and per day). A bulk
+  // backfill has to pace itself against that rather than discover it as a 429
+  // ten thousand records in, so the budget is kept where a caller can read it.
+  lastWriteLimit = {
+    remaining: Number(r.headers.get("ratelimit-remaining") ?? NaN),
+    limit: Number(r.headers.get("ratelimit-limit") ?? NaN),
+    reset: Number(r.headers.get("ratelimit-reset") ?? NaN),
+    policy: r.headers.get("ratelimit-policy") ?? undefined,
+  };
   if (!r.ok) throw new Error(`putRecord ${collection}/${rkey}: ${r.status} ${await r.text()}`);
   return await r.json();
 }
+
+export interface WriteLimit {
+  remaining: number;
+  limit: number;
+  reset: number; // unix seconds
+  policy?: string;
+}
+let lastWriteLimit: WriteLimit | undefined;
+export const writeLimit = (): WriteLimit | undefined =>
+  lastWriteLimit && Number.isFinite(lastWriteLimit.remaining) ? lastWriteLimit : undefined;
 
 export async function deleteRecord(
   sess: { did: string; accessJwt: string },
