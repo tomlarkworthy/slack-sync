@@ -12,6 +12,10 @@
 // The PDS meters writes per repo, so the run paces itself against the budget
 // the worker reports and sleeps out an exhausted window rather than failing.
 //
+//   --retry-failures  re-post only the records the watermark recorded as failed.
+//                     Run it after the main run, not alongside: it cannot roll
+//                     `done` back, but a live run rewrites the whole watermark
+//                     each batch and will restore the entry it just cleared.
 //   --watermark <f>   default: <input>.watermark.json
 //   --restart         ignore an existing watermark and start from line 0
 //   --limit N         stop after N records this run (leaves the watermark set)
@@ -42,6 +46,7 @@ const opt = (name: string, dflt?: string) => {
 const dryRun = flag("--dry-run");
 const repairOnly = flag("--repair-only");
 const restart = flag("--restart");
+const retryFailures = flag("--retry-failures");
 const delayMs = Number(opt("--delay-ms", "250"));
 const runLimit = Number(opt("--limit", "0"));
 const path = args.find((a, i) => !a.startsWith("--") && !args[i - 1]?.startsWith("--"));
@@ -93,7 +98,7 @@ console.log(
   `${lines.length} lines, ${all.length} distinct records (${Object.entries(counts).map(([c, n]) => `${n} ${c.split(".").pop()}`).join(", ")})`,
 );
 console.log(`resuming at ${wm.done}/${all.length}${wm.done ? ` (${((wm.done / all.length) * 100).toFixed(1)}%)` : ""}`);
-if (dryRun) process.exit(0);
+if (dryRun && !retryFailures) process.exit(0);
 if (repairOnly && all.some((i) => i.collection !== "social.colibri.message"))
   throw new Error("--repair-only posts to /repair/messages, which only takes social.colibri.message");
 
@@ -152,6 +157,40 @@ async function postBatch(batch: Item[]): Promise<Result> {
     await sleep(pause);
     wait = Math.min(wait * 2, MAX_BACKOFF_MS);
   }
+}
+
+// A record the PDS failed on (a transient 500, say) is recorded and stepped
+// over so a long run does not stall on it. This re-posts just those and drops
+// the ones that land; the main watermark offset is left where it is.
+if (retryFailures) {
+  if (!wm.failures.length) {
+    console.log("no recorded failures");
+    process.exit(0);
+  }
+  const want = new Set(wm.failures.map((f) => f.rkey));
+  const redo = all.filter((i) => want.has(i.rkey));
+  console.log(`${wm.failures.length} recorded failures, ${redo.length} found in ${path}`);
+  if (dryRun) process.exit(0);
+  const still: typeof wm.failures = [];
+  for (let i = 0; i < redo.length; i += BATCH) {
+    const r = await postBatch(redo.slice(i, i + BATCH));
+    for (const [k, v] of Object.entries(r)) if (Array.isArray(v)) wm.totals[k] = (wm.totals[k] ?? 0) + v.length;
+    if (r.failed?.length) still.push(...r.failed);
+    console.log(`  created ${r.created.length}, updated ${r.updated.length}, unchanged ${r.unchanged.length}, failed ${r.failed?.length ?? 0}`);
+    if (delayMs > 0) await sleep(delayMs);
+  }
+  // The main run may be writing this same file. Re-read it and touch only the
+  // failure list, so clearing a failure cannot roll `done` back to whatever it
+  // was when this process started.
+  if (existsSync(wmPath)) {
+    const live = JSON.parse(readFileSync(wmPath, "utf8")) as Watermark;
+    wm = { ...live, failures: live.failures.filter((f) => still.some((s2) => s2.rkey === f.rkey)) };
+  } else {
+    wm.failures = still;
+  }
+  saveWatermark();
+  console.log(still.length ? `${still.length} still failing` : "all recorded failures cleared");
+  process.exit(still.length ? 1 : 0);
 }
 
 const t0 = Date.now();

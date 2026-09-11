@@ -89,6 +89,14 @@ it, so re-running the same command after a drop, a ^C or a reboot continues
 where it stopped. `--limit N` stops after N records, `--restart` discards the
 watermark, `--dry-run` counts the input.
 
+A record the PDS fails on (a transient 500, say) is recorded and stepped over
+so the run does not stall on it. Clear those afterwards — not during, since a
+live run rewrites the whole watermark each batch:
+
+```sh
+INJECT_TOKEN=… bun packages/backfill/scripts/post-records.ts tools/backfill-all.jsonl --retry-failures
+```
+
 Every batch is retried with exponential backoff — 12 attempts capped at 5 min,
 about half an hour of outage tolerated — and a 429 honours `Retry-After`. One
 bad record no longer costs its batch: the worker reports it in `failed` and the
